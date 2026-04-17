@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.cluster import FeatureAgglomeration
 from sklearn.preprocessing import StandardScaler
 
-def find_proxies(dataset_df: pd.DataFrame, protected_col: str, correlation_threshold: float = 0.15) -> list:
+def find_proxies(dataset_df: pd.DataFrame, protected_col: str, target_col: str, correlation_threshold: float = 0.15) -> list:
     """
     Performs hierarchical clustering on features to group similar variables,
     then correlates the cluster representations with the protected column
@@ -21,7 +21,6 @@ def find_proxies(dataset_df: pd.DataFrame, protected_col: str, correlation_thres
         y = y.astype('category').cat.codes
         
     # Drop target and protected column from features, select numeric features only
-    target_col = 'loan_approved'
     cols_to_drop = [c for c in [protected_col, target_col] if c in df.columns]
     X = df.drop(columns=cols_to_drop).select_dtypes(include=[np.number])
     

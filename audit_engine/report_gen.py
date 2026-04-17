@@ -25,30 +25,64 @@ def generate_executive_summary(audit_data: dict) -> str:
     
     pdf.set_text_color(0, 0, 0)
     
-    # Metrics
+    # 1. Executive Summary
     pdf.set_font("helvetica", "B", 14)
-    pdf.cell(0, 10, "Audit Metrics:", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "1. Executive Summary", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("helvetica", "", 12)
     
     fairness_ratio = audit_data.get("fairness_ratio", 0.0)
     compliance_pass = audit_data.get("compliance_pass", False)
-    top_feature = audit_data.get("top_biased_feature", "N/A")
     
     status_text = "PASS" if compliance_pass else "FAIL"
-    
-    # Write metrics
-    pdf.cell(50, 10, "US EEOC Compliance Status:", ln=0)
-    # Status color
+    pdf.cell(60, 10, "US EEOC Compliance Status:", ln=0)
     if compliance_pass:
         pdf.set_text_color(0, 128, 0) # Green
     else:
         pdf.set_text_color(200, 0, 0) # Red
     pdf.cell(0, 10, status_text, new_x="LMARGIN", new_y="NEXT")
-    
     pdf.set_text_color(0, 0, 0)
-    pdf.cell(50, 10, f"Final Fairness Ratio: {fairness_ratio:.2f}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(50, 10, f"Top Biased Feature: {top_feature}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, f"Disparate Impact Ratio: {fairness_ratio:.2f}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
     
+    # 2. Data Integrity
+    pdf.set_font("helvetica", "B", 14)
+    pdf.cell(0, 10, "2. Data Integrity (Pre-Processing)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("helvetica", "", 12)
+    
+    flagged_proxies = audit_data.get("flagged_proxies", [])
+    if flagged_proxies:
+        pdf.multi_cell(0, 10, "The following variables were flagged as highly correlated proxies for protected attributes:", new_x="LMARGIN", new_y="NEXT")
+        for p in flagged_proxies:
+            pdf.cell(10) # indent
+            pdf.cell(0, 8, f"- {p}", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, 10, "No hidden proxy variables detected.", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    
+    # 3. Bias Analysis
+    pdf.set_font("helvetica", "B", 14)
+    pdf.cell(0, 10, "3. Bias Analysis (Post-Processing)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("helvetica", "", 12)
+    
+    group_a_rate = audit_data.get("group_a_rate", 0.0)
+    group_b_rate = audit_data.get("group_b_rate", 0.0)
+    pdf.cell(0, 10, f"- Privileged Group Selection Rate: {group_a_rate * 100:.1f}%", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, f"- Unprivileged Group Selection Rate: {group_b_rate * 100:.1f}%", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    
+    # 4. Feature Impact
+    pdf.set_font("helvetica", "B", 14)
+    pdf.cell(0, 10, "4. Feature Impact (Explainability)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("helvetica", "", 12)
+    
+    shap_summary = audit_data.get("shap_summary", {})
+    if shap_summary:
+        pdf.cell(0, 10, "Top 5 features influencing the model's decisions:", new_x="LMARGIN", new_y="NEXT")
+        for feature, score in shap_summary.items():
+            pdf.cell(10)
+            pdf.cell(0, 8, f"- {feature}: {score:.4f}", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, 10, "Feature impact data unavailable.", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
     
     # Summary Sentence
@@ -61,8 +95,10 @@ def generate_executive_summary(audit_data: dict) -> str:
     pdf.multi_cell(0, 10, f"Summary: {summary}", new_x="LMARGIN", new_y="NEXT")
     
     # Create temp file
-    temp_dir = tempfile.gettempdir()
-    filepath = os.path.join(temp_dir, "equiguard_executive_report.pdf")
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    filepath = temp_file.name
+    temp_file.close()
+    
     pdf.output(filepath)
     
     return filepath

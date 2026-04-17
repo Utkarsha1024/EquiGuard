@@ -1,16 +1,10 @@
 # EquiGuard: AI Bias Firewall
 
-## Problem Statement
+## The Problem
+Companies deploy AI models that contain hidden demographic biases, exposing them to lawsuits. 
 
-As artificial intelligence systems increasingly automate high-stakes decisions—from loan approvals to hiring and criminal justice—they run the profound risk of amplifying historical biases. An unmonitored model can inadvertently learn proxies for protected attributes, systematically discriminating against specific demographic groups. Not only does this cause severe societal harm, but it also exposes enterprises to significant legal liability, regulatory fines (such as under the EU AI Act), and irreversible brand damage.
-
-## Solution
-
-**EquiGuard** acts as an enterprise-grade AI Bias Firewall. It intercepts, audits, and mitigates automated decisions before deployment using a robust three-layered defense system:
-
-1. **Pre-Processing (Proxy Hunter)**: Utilizes Hierarchical Clustering (`sklearn.cluster.FeatureAgglomeration`) to analyze the dataset prior to training. It mathematically detects combinations of supposedly "safe" variables that correlate heavily with protected attributes (hidden proxies) and flags them for removal.
-2. **Post-Processing (Compliance Auditing)**: Evaluates the trained model's predictions against established legal frameworks. It automatically calculates selection rates and strictly enforces the **US EEOC 4/5ths Rule**, guaranteeing demographic parity across all outputs.
-3. **Explainability (SHAP Analysis)**: Integrated with SHAP (`LinearExplainer`), the firewall provides deep transparency into the model's decision-making process. By surfacing the top biased features driving unequal outcomes, it transforms black-box algorithms into interpretable, actionable insights.
+## The Solution
+EquiGuard is an enterprise AI Bias Firewall. It intercepts automated decisions, mathematically audits them against US EEOC compliance laws, identifies the exact neural pathways causing the bias, and autonomously retrains the model to safely pass compliance.
 
 ## Architecture Stack
 

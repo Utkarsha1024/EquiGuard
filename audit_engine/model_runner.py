@@ -1,33 +1,39 @@
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import Pipeline
 
-def run_model():
-    # Fetch golden demo dataset
-    url = "golden_demo_dataset.csv"
-    
+def run_model(data_path: str = "golden_demo_dataset.csv", target_col: str = "loan_approved", protected_col: str = "race"):
     # Load dataset
-    df = pd.read_csv(url)
+    df = pd.read_csv(data_path)
     
-    # Target variable
-    target_col = 'loan_approved'
+    # Drop rows where target or protected is missing
+    df = df.dropna(subset=[target_col, protected_col])
     
-    # Features from the golden dataset
-    features = ['age', 'juv_fel_count', 'c_charge_degree', 'priors_count']
+    # Target Encoding: Force string labels into binary integers
+    df[target_col] = LabelEncoder().fit_transform(df[target_col])
     
-    # Drop rows where target is missing just in case
-    df = df.dropna(subset=[target_col])
+    # Protected Binarization: Ensure discrete groups for EEOC math
+    if np.issubdtype(df[protected_col].dtype, np.number):
+        if len(df[protected_col].unique()) > 2:
+            median_val = df[protected_col].median()
+            df[protected_col] = (df[protected_col] >= median_val).astype(int)
+    else:
+        df[protected_col] = LabelEncoder().fit_transform(df[protected_col])
     
-    X = df[features]
+    # Dynamically select numeric features excluding target and protected
+    cols_to_drop = [c for c in [target_col, protected_col] if c in df.columns]
+    X = df.drop(columns=cols_to_drop).select_dtypes(include=[np.number])
+    
     y = df[target_col]
     
     # Split the data
     X_train, X_test, y_train, y_test, race_train, race_test = train_test_split(
-        X, y, df['race'], test_size=0.2, random_state=42
+        X, y, df[protected_col], test_size=0.2, random_state=42
     )
     
     # Basic pipeline with imputation and scaling

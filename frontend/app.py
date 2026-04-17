@@ -15,53 +15,62 @@ st.markdown("""
     <style>
     /* Dark Mode Background */
     .stApp {
-        background-color: #121212;
+        background-color: #0f0f11;
         color: #e0e0e0;
     }
     
     /* Pill-shaped Buttons */
     .stButton > button {
-        border-radius: 24px;
-        background-color: #2c2c2c;
-        color: #ffffff;
-        border: 1px solid #444444;
-        padding: 10px 24px;
-        transition: all 0.3s ease;
+        border-radius: 50px !important;
+        background: linear-gradient(135deg, #2c2c2e 0%, #1c1c1e 100%) !important;
+        color: #ffffff !important;
+        border: 1px solid #444 !important;
+        padding: 12px 28px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px !important;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.4) !important;
     }
     .stButton > button:hover {
-        background-color: #3d3d3d;
-        border-color: #888888;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.6) !important;
+        border-color: #666 !important;
+        background: linear-gradient(135deg, #3c3c3e 0%, #2c2c2e 100%) !important;
     }
     
     /* Pill-shaped Compliance Badges */
     .badge-pass {
-        background-color: #1b3a20;
+        background: linear-gradient(135deg, #1b3a20 0%, #122b16 100%);
         color: #81c784;
-        padding: 8px 20px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 14px;
+        padding: 8px 24px;
+        border-radius: 50px;
+        font-weight: 700;
+        font-size: 15px;
         display: inline-block;
         margin: 4px 0px;
+        box-shadow: 0 4px 12px rgba(27, 58, 32, 0.4);
+        border: 1px solid #2e5a35;
     }
     .badge-fail {
-        background-color: #4a1a1a;
+        background: linear-gradient(135deg, #4a1a1a 0%, #301010 100%);
         color: #e57373;
-        padding: 8px 20px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 14px;
+        padding: 8px 24px;
+        border-radius: 50px;
+        font-weight: 700;
+        font-size: 15px;
         display: inline-block;
         margin: 4px 0px;
+        box-shadow: 0 4px 12px rgba(74, 26, 26, 0.4);
+        border: 1px solid #6b2626;
     }
     
-    /* Rounded Container Cards */
-    div[data-testid="stVerticalBlock"] div[style*="flex-direction: column"] {
-        background-color: #1e1e1e;
-        border-radius: 16px;
+    /* Heavy Rounded Container Cards & Metrics */
+    div[data-testid="stMetric"], div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] {
+        background-color: #18181a;
+        border-radius: 24px;
         padding: 24px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+        border: 1px solid #2a2a2c;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -131,13 +140,38 @@ with col1:
 with col2:
     st.markdown("### Control Panel")
     uploaded_file = st.file_uploader("Upload Dataset (CSV)")
-    if uploaded_file is None:
+    
+    if uploaded_file is not None:
+        import pandas as pd
+        
+        # Auto-detect delimiter and read the file
+        df = pd.read_csv(uploaded_file, sep=None, engine='python')
+        
+        # Normalize and save locally as a standard CSV
+        df.to_csv("uploaded_data.csv", index=False)
+        
+        st.session_state.data_path = "uploaded_data.csv"
+        
+        columns = df.columns.tolist()
+        
+        st.session_state.target_col = st.selectbox("Select Target Column", columns)
+        st.session_state.protected_col = st.selectbox("Select Protected Column", columns)
+    else:
         st.info("Using default: golden_demo_dataset.csv")
+        st.session_state.data_path = "golden_demo_dataset.csv"
+        st.session_state.target_col = "loan_approved"
+        st.session_state.protected_col = "race"
+        
+    api_payload = {
+        "data_path": st.session_state.data_path,
+        "target_col": st.session_state.target_col,
+        "protected_col": st.session_state.protected_col
+    }
     
     if st.button("Run Pre-Processing Audit"):
         with st.spinner("Hunting for Proxy Variables..."):
             try:
-                response = requests.post("http://127.0.0.1:8000/audit/preprocess", json={"dataset_id": "compas"})
+                response = requests.post("http://127.0.0.1:8000/audit/preprocess", json=api_payload)
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("proxies_detected"):
@@ -160,7 +194,7 @@ with col2:
     if st.button("Run Full Compliance Audit"):
         with st.spinner("Running Audit..."):
             try:
-                response = requests.post("http://127.0.0.1:8000/audit/compliance")
+                response = requests.post("http://127.0.0.1:8000/audit/compliance", json=api_payload)
                 if response.status_code == 200:
                     st.session_state.audit_result = response.json()
                     st.rerun()
@@ -176,8 +210,9 @@ with col2:
     if st.button("Apply Mitigation (Drop Proxies)"):
         with st.spinner('Retraining Model...'):
             try:
-                payload = {"flagged_columns": st.session_state.flagged_columns}
-                response = requests.post("http://127.0.0.1:8000/audit/mitigate", json=payload)
+                mitigation_payload = api_payload.copy()
+                mitigation_payload["flagged_columns"] = st.session_state.flagged_columns
+                response = requests.post("http://127.0.0.1:8000/audit/mitigate", json=mitigation_payload)
                 if response.status_code == 200:
                     st.session_state.audit_result = response.json()
                     st.rerun()
@@ -192,7 +227,10 @@ with col2:
                 
     if st.session_state.audit_result:
         try:
-            pdf_response = requests.post("http://127.0.0.1:8000/audit/export", json=st.session_state.audit_result)
+            export_payload = st.session_state.audit_result.copy()
+            export_payload["flagged_proxies"] = st.session_state.flagged_columns
+            
+            pdf_response = requests.post("http://127.0.0.1:8000/audit/export", json=export_payload)
             if pdf_response.status_code == 200:
                 st.download_button(
                     label="Export CEO Report",
@@ -228,7 +266,36 @@ with st.container():
                 df_history.set_index("timestamp", inplace=True)
                 
                 # Plot fairness ratio over time
-                st.line_chart(df_history["fairness_ratio"])
+                import plotly.express as px
+                max_y = max(1.05, df_history['fairness_ratio'].max() * 1.1)
+                
+                fig = px.line(
+                    df_history, 
+                    y="fairness_ratio", 
+                    markers=True,
+                    title="Temporal Bias Drift"
+                )
+                
+                # Style for dark mode
+                fig.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)", 
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font_color="white",
+                    margin=dict(l=20, r=20, t=40, b=20)
+                )
+                
+                # Dynamic Y-axis
+                fig.update_yaxes(
+                    range=[0, max_y],
+                    gridcolor="#333",
+                    zerolinecolor="#555"
+                )
+                fig.update_xaxes(gridcolor="#333")
+                
+                # Add EEOC 0.8 Threshold Line
+                fig.add_hline(y=0.8, line_dash="dash", line_color="#e57373", annotation_text="EEOC Minimum (0.8)")
+                
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No audit history available yet. Run a compliance audit to see the leaderboard.")
         else:

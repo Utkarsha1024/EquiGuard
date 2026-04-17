@@ -2,3 +2,4 @@ equiguard_env/
 __pycache__/
 *.pyc
 .env
+uploaded_data.csv

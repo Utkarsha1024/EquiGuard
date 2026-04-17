@@ -1,55 +1,54 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score
 
-def run_model():
+def mitigate_and_retrain(flagged_columns: list):
     # Fetch golden demo dataset
     url = "golden_demo_dataset.csv"
-    
-    # Load dataset
     df = pd.read_csv(url)
     
-    # Target variable
     target_col = 'loan_approved'
     
-    # Features from the golden dataset
+    # Original features used in model_runner
     features = ['age', 'juv_fel_count', 'c_charge_degree', 'priors_count']
     
-    # Drop rows where target is missing just in case
+    # Drop flagged proxy variables from the feature set
+    clean_features = [f for f in features if f not in flagged_columns]
+    
+    # If all features were flagged, at least keep one to prevent crashing (fallback)
+    if not clean_features:
+        clean_features = ['juv_misd_count']
+        
     df = df.dropna(subset=[target_col])
     
-    X = df[features]
+    X = df[clean_features]
     y = df[target_col]
     
-    # Split the data
+    # Split the data, preserving the protected attribute for auditing
     X_train, X_test, y_train, y_test, race_train, race_test = train_test_split(
         X, y, df['race'], test_size=0.2, random_state=42
     )
     
-    # Basic pipeline with imputation and scaling
+    # Retrain pipeline
     pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler()),
         ('classifier', LogisticRegression(random_state=42))
     ])
     
-    # Train the model
     pipeline.fit(X_train, y_train)
-    
-    # Predict
     predictions = pipeline.predict(X_test)
-    
-    # Calculate accuracy
     accuracy = accuracy_score(y_test, predictions)
     
     return {
-        "predictions": predictions.tolist(),
-        "accuracy": float(accuracy),
         "model": pipeline,
+        "predictions": predictions.tolist(),
         "X_test": X_test,
-        "protected_attributes": race_test.tolist()
+        "protected_attributes": race_test.tolist(),
+        "accuracy": float(accuracy),
+        "clean_features": clean_features
     }

@@ -27,19 +27,19 @@ It provides a full audit trail, temporal drift tracking, executive PDF reports, 
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Streamlit Frontend                    │
+│                    Streamlit Frontend                   │
 │         Dark enterprise dashboard  ·  port 8501         │
 │   Dashboard · Audit Engine · Bias Leaderboard · Reports │
 └────────────────────┬────────────────────────────────────┘
                      │  HTTP  (X-API-Key auth)
 ┌────────────────────▼────────────────────────────────────┐
-│                    FastAPI Backend                       │
-│              REST API  ·  port 8000                      │
-│  /audit/model  /audit/compliance  /audit/mitigate        │
-│  /audit/preprocess  /audit/export  /audit/certificate    │
+│                    FastAPI Backend                      │
+│              REST API  ·  port 8000                     │
+│  /audit/model  /audit/compliance  /audit/mitigate       │
+│  /audit/preprocess  /audit/export  /audit/certificate   │
 └──────┬──────────────┬───────────────┬───────────────────┘
        │              │               │
-┌──────▼──────┐ ┌─────▼──────┐ ┌─────▼──────────────────┐
+┌──────▼──────┐ ┌─────▼──────┐ ┌──────▼───────────────────┐
 │ audit_engine│ │  database  │ │     audit_engine/        │
 │             │ │            │ │                          │
 │ model_runner│ │  SQLite DB │ │  compliance.py  (aif360) │

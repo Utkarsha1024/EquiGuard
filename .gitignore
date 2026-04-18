@@ -4,3 +4,4 @@ __pycache__/
 .env
 uploaded_data.csv
 *.db
+equiguard.db

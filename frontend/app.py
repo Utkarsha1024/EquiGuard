@@ -27,6 +27,10 @@ if "flagged_columns" not in st.session_state:
     st.session_state.flagged_columns = []
 if "active_page" not in st.session_state:
     st.session_state.active_page = "Dashboard"
+if "report_bytes" not in st.session_state:
+    st.session_state.report_bytes = None
+if "cert_bytes" not in st.session_state:
+    st.session_state.cert_bytes = None
 
 # ── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -451,7 +455,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("""
-    <div style="padding: 1rem 1.2rem; margin-top: 1.5rem; border-top: 1px solid #1a1c28;">
+    <div style="padding: 1rem 1.2rem; margin-top: auto; border-top: 1px solid #1a1c28; position: absolute; bottom: 0; left: 0; right: 0;">
         <div style="font-size:11px;color:#3a3d52;font-family:'DM Mono',monospace;">v1.0.0 · EEOC Compliant</div>
     </div>
     """, unsafe_allow_html=True)
@@ -986,6 +990,9 @@ elif st.session_state.active_page == "Audit Engine":
                     response = api_post("/audit/compliance", api_payload)
                     if response.status_code == 200:
                         st.session_state.audit_result = response.json()
+                        # Reset cached PDFs so they are regenerated for the new audit
+                        st.session_state.report_bytes = None
+                        st.session_state.cert_bytes = None
                         st.success("✓ Audit complete.")
                         st.rerun()
                     else:
@@ -1001,6 +1008,9 @@ elif st.session_state.active_page == "Audit Engine":
                     response = api_post("/audit/mitigate", mitigation_payload)
                     if response.status_code == 200:
                         st.session_state.audit_result = response.json()
+                        # Reset cached PDFs so they are regenerated for the new result
+                        st.session_state.report_bytes = None
+                        st.session_state.cert_bytes = None
                         st.success("✓ Mitigation applied. Model retrained.")
                         st.rerun()
                     else:
@@ -1010,25 +1020,83 @@ elif st.session_state.active_page == "Audit Engine":
 
         st.markdown("<div style='margin-top:1rem;'>", unsafe_allow_html=True)
         if st.session_state.audit_result:
-            try:
-                export_payload = st.session_state.audit_result.copy()
-                export_payload["flagged_proxies"] = st.session_state.flagged_columns
-                pdf_response = api_post("/audit/export", export_payload)
-                if pdf_response.status_code == 200:
+
+            # ── Fetch Executive Report PDF exactly once, cache in session_state ──
+            if st.session_state.report_bytes is None:
+                try:
+                    export_payload = st.session_state.audit_result.copy()
+                    export_payload["flagged_proxies"] = st.session_state.flagged_columns
+                    pdf_response = api_post("/audit/export", export_payload)
+                    if pdf_response.status_code == 200:
+                        st.session_state.report_bytes = pdf_response.content
+                except Exception:
+                    pass  # stays None — button will render disabled
+
+            if st.session_state.report_bytes:
+                st.download_button(
+                    label="↓  Export Executive Report (PDF)",
+                    data=st.session_state.report_bytes,
+                    file_name="EquiGuard_Executive_Report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_report",
+                )
+            else:
+                st.button("↓  Export Executive Report (PDF)", disabled=True,
+                          use_container_width=True, key="dl_report_disabled")
+
+            # ── Compliance Certificate (only shown on PASS) ──────────────────
+            if st.session_state.audit_result.get("compliance_pass"):
+
+                # Fetch certificate PDF exactly once, cache in session_state
+                if st.session_state.cert_bytes is None:
+                    try:
+                        cert_payload = st.session_state.audit_result.copy()
+                        cert_response = api_post("/audit/certificate", cert_payload)
+                        if cert_response.status_code == 200:
+                            st.session_state.cert_bytes = cert_response.content
+                        else:
+                            st.warning(
+                                f"Certificate generation failed (HTTP {cert_response.status_code}): "
+                                f"{cert_response.text[:200]}"
+                            )
+                    except Exception as e:
+                        st.error(f"Certificate request error: {e}")
+
+                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
+                if st.session_state.cert_bytes:
                     st.download_button(
-                        label="↓  Export Executive Report (PDF)",
-                        data=pdf_response.content,
-                        file_name="EquiGuard_Executive_Report.pdf",
+                        label="⬡  Download EEOC Compliance Certificate",
+                        data=st.session_state.cert_bytes,
+                        file_name="EquiGuard_EEOC_Certificate.pdf",
                         mime="application/pdf",
-                        use_container_width=True
+                        use_container_width=True,
+                        help="One-page compliance certificate — issue to auditors or executives.",
+                        key="dl_cert",
                     )
                 else:
-                    st.button("↓  Export Executive Report (PDF)", disabled=True, use_container_width=True)
-            except:
-                st.button("↓  Export Executive Report (PDF)", disabled=True, use_container_width=True)
+                    st.button("⬡  Download EEOC Compliance Certificate",
+                              disabled=True, use_container_width=True, key="dl_cert_disabled")
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            else:
+                st.markdown("""
+                <div style="margin-top:8px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);
+                border-radius:10px;padding:10px 14px;font-size:12px;color:#f87171;font-family:'DM Mono',monospace;">
+                    ✗  Certificate unavailable — model did not pass EEOC audit.<br>
+                    <span style="color:#4b5280;">Apply mitigation and re-run to unlock.</span>
+                </div>
+                """, unsafe_allow_html=True)
+
         else:
             st.button("↓  Export Executive Report (PDF)", disabled=True,
-                      help="Run a compliance audit first.", use_container_width=True)
+                      help="Run a compliance audit first.", use_container_width=True,
+                      key="dl_report_none")
+            st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
+            st.button("⬡  Download EEOC Compliance Certificate", disabled=True,
+                      help="Run a compliance audit first.", use_container_width=True,
+                      key="dl_cert_none")
+            st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)

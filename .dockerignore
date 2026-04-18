@@ -1,0 +1,43 @@
+# ── EquiGuard .dockerignore ───────────────────────────────────────────────────
+# Keeps the Docker build context lean and safe.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Virtual environment — never copy into Docker (we install fresh)
+equiguard_env/
+venv/
+.venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Secrets — NEVER bake into the image
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Test artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Database — mounted as a volume, not baked in
+*.db
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploaded user data (runtime only)
+uploaded_data.csv

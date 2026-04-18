@@ -9,7 +9,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Security, Depends
 from fastapi.security.api_key import APIKeyHeader
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.status import HTTP_403_FORBIDDEN
 
 from audit_engine.model_runner import run_model
@@ -17,6 +17,7 @@ from audit_engine.compliance import run_audit
 from audit_engine.proxy_hunter import find_proxies
 from audit_engine.mitigation import mitigate_and_retrain
 from audit_engine.report_gen import generate_executive_summary
+from audit_engine.certificate import generate_certificate
 from database.db import log_audit_run, get_audit_history
 
 # ── Load environment variables from .env ───────────────────────────────────────
@@ -218,6 +219,31 @@ def audit_export(payload: dict, background_tasks: BackgroundTasks):
 def audit_history():
     history = get_audit_history()
     return {"status": "success", "history": history}
+
+@app.post("/audit/certificate", tags=["Audit"], dependencies=[Depends(require_api_key)])
+def audit_certificate(payload: dict):
+    """
+    Generates a one-page EEOC Compliance Certificate PDF and returns it directly
+    as bytes. Only succeeds if compliance_pass is True in the payload.
+    Returns 400 if the model did not pass.
+    """
+    if not payload.get("compliance_pass", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Certificate can only be issued for models that passed the EEOC compliance audit.",
+        )
+    try:
+        pdf_bytes = generate_certificate(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate compliance certificate: {e}")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="EquiGuard_EEOC_Certificate.pdf"'},
+    )
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 import os
 import tempfile
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from datetime import datetime
 from fpdf import FPDF
 
@@ -9,6 +12,8 @@ def generate_executive_summary(audit_data: dict) -> str:
     Returns the path to the temporary PDF file.
     """
     pdf = FPDF()
+    chart1_path = None
+    chart2_path = None
     pdf.add_page()
     
     # Title
@@ -66,8 +71,24 @@ def generate_executive_summary(audit_data: dict) -> str:
     
     group_a_rate = audit_data.get("group_a_rate", 0.0)
     group_b_rate = audit_data.get("group_b_rate", 0.0)
+    
+    # Generate Chart 1: Bias Analysis
+    plt.figure(figsize=(6, 4))
+    plt.bar(["Privileged", "Unprivileged"], [group_a_rate, group_b_rate], color=['#1f77b4', '#ff7f0e'])
+    plt.ylabel("Selection Rate")
+    plt.title("Bias Analysis: Selection Rates")
+    chart1_fd, chart1_path = tempfile.mkstemp(suffix=".png")
+    os.close(chart1_fd)
+    plt.tight_layout()
+    plt.savefig(chart1_path)
+    plt.close()
+
     pdf.cell(0, 10, f"- Privileged Group Selection Rate: {group_a_rate * 100:.1f}%", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 10, f"- Unprivileged Group Selection Rate: {group_b_rate * 100:.1f}%", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    
+    # Insert Chart 1
+    pdf.image(chart1_path, w=120)
     pdf.ln(5)
     
     # 4. Feature Impact
@@ -78,9 +99,34 @@ def generate_executive_summary(audit_data: dict) -> str:
     shap_summary = audit_data.get("shap_summary", {})
     if shap_summary:
         pdf.cell(0, 10, "Top 5 features influencing the model's decisions:", new_x="LMARGIN", new_y="NEXT")
+        
+        # Generate Chart 2: Feature Impact
+        features = list(shap_summary.keys())[:5]
+        scores = list(shap_summary.values())[:5]
+        
+        plt.figure(figsize=(7, 4))
+        plt.barh(features, scores, color='#2ca02c')
+        plt.xlabel("SHAP Value (Impact)")
+        plt.title("Top Feature Impacts")
+        plt.gca().invert_yaxis()
+        chart2_fd, chart2_path = tempfile.mkstemp(suffix=".png")
+        os.close(chart2_fd)
+        plt.tight_layout()
+        plt.savefig(chart2_path)
+        plt.close()
+        
+        pdf.image(chart2_path, w=140)
+        pdf.ln(5)
+        
+        # Data Table
+        pdf.set_font("helvetica", "B", 12)
+        pdf.cell(90, 10, "Feature", border=1, align="C")
+        pdf.cell(90, 10, "SHAP Value", border=1, align="C", new_x="LMARGIN", new_y="NEXT")
+        
+        pdf.set_font("helvetica", "", 12)
         for feature, score in shap_summary.items():
-            pdf.cell(10)
-            pdf.cell(0, 8, f"- {feature}: {score:.4f}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(90, 10, str(feature), border=1)
+            pdf.cell(90, 10, f"{score:.4f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.cell(0, 10, "Feature impact data unavailable.", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
@@ -101,4 +147,10 @@ def generate_executive_summary(audit_data: dict) -> str:
     
     pdf.output(filepath)
     
+    # Securely delete temp PNG files
+    if chart1_path and os.path.exists(chart1_path):
+        os.remove(chart1_path)
+    if chart2_path and os.path.exists(chart2_path):
+        os.remove(chart2_path)
+        
     return filepath

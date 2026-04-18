@@ -1,12 +1,10 @@
 # EquiGuard — AI Bias Firewall
 
-[![CI](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml)
+[![CI](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml/badge.svg)
+](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
 ![EEOC](https://img.shields.io/badge/compliance-EEOC%204%2F5ths-indigo)
-[![CI](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml/badge.svg)]
 ![Static Badge](https://img.shields.io/badge/License-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.68+-green.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-0.89+-red.svg)
 ---

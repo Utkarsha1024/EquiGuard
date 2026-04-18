@@ -1,0 +1,62 @@
+name: EquiGuard CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup ──────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ───────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov httpx
+
+      # ── 4. Create .env for CI ────────────────────────────────────
+      #    We inject the test API key as a GitHub secret.
+      #    In Settings → Secrets → Actions, add:
+      #      EQUIGUARD_API_KEY  →  any strong random string
+      - name: Create .env for CI
+        run: |
+          echo "EQUIGUARD_API_KEY=${{ secrets.EQUIGUARD_API_KEY || 'test-secret-key-for-ci' }}" >> .env
+          echo "ENV=testing"                          >> .env
+          echo "DATABASE_URL=sqlite:///equiguard.db"  >> .env
+          echo "HOST=127.0.0.1"                       >> .env
+          echo "PORT=8000"                            >> .env
+          echo "API_BASE_URL=http://127.0.0.1:8000"  >> .env
+
+      # ── 5. Run tests ──────────────────────────────────────────────
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ -v \
+            --tb=short \
+            --cov=audit_engine \
+            --cov=backend \
+            --cov-report=term-missing \
+            --cov-report=xml
+
+      # ── 6. Upload coverage (optional — works with codecov.io) ────
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+        if: always()

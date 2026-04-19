@@ -18,7 +18,12 @@ from audit_engine.proxy_hunter import find_proxies
 from audit_engine.mitigation import mitigate_and_retrain
 from audit_engine.report_gen import generate_executive_summary
 from audit_engine.certificate import generate_certificate
+from audit_engine.simulator import simulate_mitigation
+from audit_engine.intersectional import run_intersectional_audit
 from database.db import log_audit_run, get_audit_history
+import json
+import zipfile
+import tempfile
 
 # ── Load environment variables from .env ───────────────────────────────────────
 load_dotenv()
@@ -244,6 +249,138 @@ def audit_certificate(payload: dict):
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="EquiGuard_EEOC_Certificate.pdf"'},
     )
+
+@app.post("/audit/simulate", tags=["Audit"], dependencies=[Depends(require_api_key)])
+def audit_simulate(payload: dict):
+    """
+    For each numeric feature, simulates dropping it and retraining to project
+    the resulting EEOC fairness ratio and accuracy cost.
+    """
+    data_path     = payload.get("data_path",     "golden_demo_dataset.csv")
+    target_col    = payload.get("target_col",    "loan_approved")
+    protected_col = payload.get("protected_col", "race")
+
+    try:
+        results = simulate_mitigation(data_path, target_col, protected_col)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Simulation failed: {e}")
+
+    return {"status": "success", "simulations": results}
+
+
+@app.post("/audit/intersectional", tags=["Audit"], dependencies=[Depends(require_api_key)])
+def audit_intersectional(payload: dict):
+    """
+    Auto-detects protected attribute columns (categorical / low-cardinality),
+    runs an EEOC audit for each, and returns Pearson correlation heatmap data.
+    """
+    data_path  = payload.get("data_path",  "golden_demo_dataset.csv")
+    target_col = payload.get("target_col", "loan_approved")
+
+    try:
+        result = run_intersectional_audit(data_path, target_col)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Intersectional audit failed: {e}")
+
+    return {"status": "success", **result}
+
+
+@app.post("/audit/package", tags=["Audit"], dependencies=[Depends(require_api_key)])
+def audit_package(payload: dict, background_tasks: BackgroundTasks):
+    """
+    Generates a full regulatory export ZIP containing:
+      - EquiGuard_Executive_Report.pdf
+      - EquiGuard_EEOC_Certificate.pdf
+      - methodology.txt
+      - audit_log.json
+    Only available when compliance_pass is True.
+    """
+    if not payload.get("compliance_pass", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Regulatory package can only be issued for compliant models.",
+        )
+
+    temp_files = []
+    try:
+        # 1. Executive PDF
+        report_path = generate_executive_summary(payload)
+        temp_files.append(report_path)
+
+        # 2. Certificate PDF
+        cert_bytes = generate_certificate(payload)
+        cert_fd, cert_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(cert_fd)
+        with open(cert_path, "wb") as f:
+            f.write(cert_bytes)
+        temp_files.append(cert_path)
+
+        # 3. Methodology text
+        methodology = (
+            "EquiGuard Audit Methodology\n"
+            "===========================\n\n"
+            "1. EEOC 4/5ths Rule (Disparate Impact Ratio)\n"
+            "   The Equal Employment Opportunity Commission Uniform Guidelines (29 CFR § 1607)\n"
+            "   require that the selection rate for any protected group be at least 4/5ths (80%)\n"
+            "   of the rate for the group with the highest selection rate. EquiGuard computes\n"
+            "   this as: ratio = unprivileged_selection_rate / privileged_selection_rate.\n"
+            "   A ratio >= 0.80 is considered compliant.\n\n"
+            "2. SHAP Feature Attribution\n"
+            "   SHAP (SHapley Additive exPlanations) values quantify each feature's average\n"
+            "   contribution to the model's predictions. EquiGuard uses SHAP LinearExplainer\n"
+            "   on the trained LogisticRegression pipeline. Higher mean |SHAP| indicates\n"
+            "   greater influence on outcomes — and greater risk of proxy bias.\n\n"
+            "3. Proxy Variable Detection\n"
+            "   EquiGuard applies hierarchical feature agglomeration (sklearn FeatureAgglomeration)\n"
+            "   to cluster numeric features, then computes Pearson correlation between each\n"
+            "   cluster representative and the protected attribute. Clusters with |r| >= 0.15\n"
+            "   are flagged as potential proxy variables.\n\n"
+            "4. Bias Mitigation\n"
+            "   Flagged proxy variables are removed from the feature set. The model is\n"
+            "   retrained on the remaining features and re-audited. Accuracy delta is\n"
+            "   reported to document the fairness-accuracy trade-off.\n\n"
+            "5. Legal Standard\n"
+            "   US EEOC Uniform Guidelines on Employee Selection Procedures\n"
+            "   29 CFR Part 1607 — https://www.ecfr.gov/current/title-29/part-1607\n"
+        )
+        meth_fd, meth_path = tempfile.mkstemp(suffix=".txt")
+        os.close(meth_fd)
+        with open(meth_path, "w") as f:
+            f.write(methodology)
+        temp_files.append(meth_path)
+
+        # 4. Raw audit JSON
+        json_fd, json_path = tempfile.mkstemp(suffix=".json")
+        os.close(json_fd)
+        with open(json_path, "w") as f:
+            json.dump(payload, f, indent=2, default=str)
+        temp_files.append(json_path)
+
+        # 5. ZIP everything
+        zip_fd, zip_path = tempfile.mkstemp(suffix=".zip")
+        os.close(zip_fd)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(report_path,  "EquiGuard_Executive_Report.pdf")
+            zf.write(cert_path,    "EquiGuard_EEOC_Certificate.pdf")
+            zf.write(meth_path,    "methodology.txt")
+            zf.write(json_path,    "audit_log.json")
+        temp_files.append(zip_path)
+
+    except Exception as e:
+        for p in temp_files:
+            remove_file(p)
+        raise HTTPException(status_code=500, detail=f"Package generation failed: {e}")
+
+    for p in temp_files[:-1]:  # clean everything except the zip (cleaned after response)
+        background_tasks.add_task(remove_file, p)
+    background_tasks.add_task(remove_file, zip_path)
+
+    return FileResponse(
+        path=zip_path,
+        filename="EquiGuard_Regulatory_Package.zip",
+        media_type="application/zip",
+    )
+
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

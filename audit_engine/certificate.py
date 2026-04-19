@@ -274,7 +274,7 @@ def generate_certificate(audit_data: dict) -> bytes:
         ("Model Audited",   model_name),
         ("Issued On",       issued_on),
         ("Audit Timestamp", issued_ts),
-        ("Audit Engine",    "EquiGuard v1.0  |  IBM aif360  |  SHAP 0.49"),
+        ("Audit Engine",    "EquiGuard v1.0  |  scikit-learn  |  SHAP 0.49"),
         ("Standard",        "US EEOC Uniform Guidelines  29 CFR Section 1607"),
         ("Validity",        "Reflects model and dataset state at time of audit only"),
     ]
@@ -312,7 +312,7 @@ def generate_certificate(audit_data: dict) -> bytes:
     pdf.set_x(LM)
     pdf.set_font("helvetica", "", 7)
     pdf.set_text_color(*MUTED)
-    pdf.cell(half, 4, "IBM aif360  |  SHAP 0.49  |  v1.0",
+    pdf.cell(half, 4, "scikit-learn  |  SHAP 0.49  |  v1.0",
              new_x="LMARGIN", new_y="NEXT")
 
     # Right: UUID box

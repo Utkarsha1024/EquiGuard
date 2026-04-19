@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 import requests
 import plotly.graph_objects as go
@@ -31,6 +32,16 @@ if "report_bytes" not in st.session_state:
     st.session_state.report_bytes = None
 if "cert_bytes" not in st.session_state:
     st.session_state.cert_bytes = None
+if "sim_result" not in st.session_state:
+    st.session_state.sim_result = None
+if "pkg_bytes" not in st.session_state:
+    st.session_state.pkg_bytes = None
+if "intersectional_result" not in st.session_state:
+    st.session_state.intersectional_result = None
+if "ix_summary" not in st.session_state:
+    st.session_state.ix_summary = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []  # [{"role": "user"|"assistant", "content": str}]
 
 # ── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -400,6 +411,41 @@ hr { border-color: #1a1c28 !important; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: #080910; }
 ::-webkit-scrollbar-thumb { background: #1e2030; border-radius: 4px; }
+
+/* ── Risk Narrative ── */
+.narrative-card { background:#0d0e14; border:1px solid #1a1c28; border-radius:20px; padding:1.5rem; margin-bottom:1rem; }
+.narrative-card.pass { border-left:4px solid #22c55e; }
+.narrative-card.fail { border-left:4px solid #ef4444; }
+.narrative-text { font-size:13px; color:#c8cad4; font-family:'DM Sans',sans-serif; line-height:1.75; }
+.narrative-text p { margin:0 0 10px 0; }
+.nh { color:#818cf8; font-family:'DM Mono',monospace; }
+
+/* ── What-If Simulator Table ── */
+.sim-table { width:100%; border-collapse:collapse; }
+.sim-table th { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#3a3d52; font-family:'DM Mono',monospace; padding:8px 12px; border-bottom:1px solid #1a1c28; text-align:left; }
+.sim-table td { padding:9px 12px; border-bottom:1px solid #0f1018; font-size:13px; color:#c8cad4; }
+.sim-table tr.best-row td { background:rgba(99,102,241,0.07); }
+.rec-drop { display:inline-flex; align-items:center; background:rgba(34,197,94,0.1); color:#4ade80; padding:2px 10px; border-radius:50px; font-size:11px; border:1px solid rgba(34,197,94,0.2); font-family:'DM Mono',monospace; }
+.rec-keep { display:inline-flex; align-items:center; background:rgba(107,114,128,0.1); color:#6b7280; padding:2px 10px; border-radius:50px; font-size:11px; border:1px solid rgba(107,114,128,0.2); font-family:'DM Mono',monospace; }
+
+/* ── Mitigation Comparison ── */
+.compare-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.compare-side { background:#0a0b10; border:1px solid #1a1c28; border-radius:14px; padding:1.2rem; }
+.compare-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:#3a3d52; font-family:'DM Mono',monospace; margin-bottom:12px; }
+.compare-metric { margin-bottom:10px; }
+.compare-metric-label { font-size:10px; color:#4b5280; font-family:'DM Mono',monospace; letter-spacing:1px; text-transform:uppercase; margin-bottom:3px; }
+.compare-metric-value { font-size:22px; font-weight:700; font-family:'Syne',sans-serif; color:#f0f1f5; }
+
+/* ── Intersectional badge row ── */
+.ix-badge { display:inline-flex; flex-direction:column; align-items:center; background:#0d0e14; border:1px solid #1a1c28; border-radius:12px; padding:10px 18px; margin:0 6px 8px 0; min-width:90px; }
+.ix-badge-label { font-size:10px; color:#4b5280; font-family:'DM Mono',monospace; letter-spacing:1px; text-transform:uppercase; margin-bottom:5px; }
+.ix-badge-val { font-size:16px; font-weight:700; font-family:'Syne',sans-serif; }
+
+/* ── Audit Agent Chat ── */
+[data-testid="stChatMessage"] { background:#0d0e14 !important; border:1px solid #1a1c28 !important; border-radius:14px !important; margin-bottom:8px !important; }
+[data-testid="stChatMessage"] p { font-size:13px !important; color:#c8cad4 !important; font-family:'DM Sans',sans-serif !important; line-height:1.65 !important; }
+[data-testid="stChatInputContainer"] { background:#0d0e14 !important; border:1px solid #1e2030 !important; border-radius:12px !important; }
+[data-testid="stChatInputContainer"]:focus-within { border-color:#6366f1 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -424,6 +470,7 @@ with st.sidebar:
         ("Dashboard", "◈", "Overview & compliance status"),
         ("Audit Engine", "⬡", "Run bias audits"),
         ("Bias Leaderboard", "◉", "Historical drift tracking"),
+        ("Intersectional", "⬢", "Multi-attribute bias heatmap"),
     ]
 
     for page, icon, _ in pages:
@@ -846,7 +893,47 @@ if st.session_state.active_page == "Dashboard":
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Risk Narrative ────────────────────────────────────────────────────────
+    if st.session_state.audit_result:
+        _r  = st.session_state.audit_result
+        _cp = _r.get("compliance_pass", False)
+        _fr = _r.get("fairness_ratio", 0.0)
+        _ga = _r.get("group_a_rate", 0.0)
+        _gb = _r.get("group_b_rate", 0.0)
+        _tf = _r.get("top_biased_feature", "N/A")
+        _px = st.session_state.flagged_columns
+        _cls    = "pass" if _cp else "fail"
+        _verb   = "passes" if _cp else "fails"
+        _tcolor = "#4ade80" if _cp else "#f87171"
+        _legal  = (
+            "This model would likely survive disparate impact scrutiny under 29 CFR § 1607."
+            if _cp else
+            "This disparity constitutes potential adverse impact under 29 CFR § 1607 and may not survive regulatory scrutiny."
+        )
+        _proxy_sent = ""
+        if _px:
+            _plist = ", ".join(f'<span class="nh">{p}</span>' for p in _px)
+            _proxy_sent = f' Additionally, <span class="nh">{len(_px)}</span> proxy variable(s) — {_plist} — were detected as statistically correlated with the protected attribute and are flagged for removal.'
+        st.markdown(f"""
+        <div class="narrative-card {_cls}">
+            <div class="section-title">⚖ Legal Risk Narrative</div>
+            <div class="narrative-text">
+                <p>The submitted model <strong style="color:#f0f1f5;">{_verb}</strong> the EEOC 4/5ths (80%) adverse impact rule.
+                The privileged group achieves a selection rate of <span class="nh">{_ga*100:.1f}%</span>,
+                while the unprivileged group achieves <span class="nh">{_gb*100:.1f}%</span>.</p>
+                <p>The resulting disparate impact ratio is <span class="nh">{_fr:.4f}</span>, compared against the
+                regulatory minimum threshold of <span style="color:{_tcolor};font-family:'DM Mono',monospace;">0.80</span>.
+                {'The ratio meets or exceeds this threshold.' if _cp else 'The ratio falls <strong style="color:#f87171;">below</strong> this threshold.'}</p>
+                <p>The feature with the highest SHAP-attributed influence on model outcomes is
+                <span class="nh">{_tf}</span>, indicating it is the primary statistical driver of model decisions.{_proxy_sent}</p>
+                <p style="margin-top:12px;padding:10px 14px;background:rgba({'34,197,94' if _cp else '239,68,68'},0.07);border-radius:8px;border-left:3px solid {'#22c55e' if _cp else '#ef4444'};">
+                {_legal}</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     # ── Bias Drift Chart (full width below) ─────────────────────────────────
+
     st.markdown('<div class="section-card" style="margin-top:0;">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">◉ Bias Drift Over Time</div>', unsafe_allow_html=True)
 
@@ -903,6 +990,101 @@ if st.session_state.active_page == "Dashboard":
             Backend unreachable — start the FastAPI server to see live drift data.
         </div>
         """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+    # ── Conversational Audit Agent ─────────────────────────────────────────────
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🤖 EquiGuard Audit Agent</div>', unsafe_allow_html=True)
+
+    _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+    if not _gemini_key:
+        st.markdown("""
+        <div class="info-chip">◌ Set <span style="color:#f0f1f5;">GEMINI_API_KEY</span> in your .env to activate the Audit Agent.</div>
+        """, unsafe_allow_html=True)
+    elif st.session_state.audit_result is None:
+        st.markdown("""
+        <div style="text-align:center;padding:2rem;font-size:13px;color:#3a3d52;font-family:'DM Mono',monospace;">
+            Run a compliance audit first — the agent reads your live audit results.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-bottom:1rem;">
+            Ask anything about this audit in plain English.
+        </div>
+        """, unsafe_allow_html=True)
+
+        for _msg in st.session_state.chat_history:
+            with st.chat_message(_msg["role"]):
+                st.markdown(_msg["content"])
+
+        if _user_input := st.chat_input("e.g. Why did we fail the EEOC check?", key="agent_input"):
+            st.session_state.chat_history.append({"role": "user", "content": _user_input})
+            with st.chat_message("user"):
+                st.markdown(_user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking…"):
+                    try:
+                        from google import genai as _genai
+                        from google.genai import types as _gtypes
+
+                        _client = _genai.Client(api_key=_gemini_key)
+
+                        _res  = st.session_state.audit_result
+                        _prox = st.session_state.flagged_columns or []
+                        _sys  = (
+                            "You are the EquiGuard Audit Agent — an AI expert in EEOC compliance "
+                            "and algorithmic bias detection embedded inside the EquiGuard platform.\n\n"
+                            "The following JSON contains the live audit results for the model under review:\n\n"
+                            f"{json.dumps(_res, indent=2)}\n\n"
+                            f"Flagged proxy variables: {_prox if _prox else 'None detected'}\n\n"
+                            "Key definitions:\n"
+                            "- fairness_ratio: EEOC 4/5ths disparate impact ratio (must be >= 0.80 to pass)\n"
+                            "- group_a_rate: privileged group selection rate\n"
+                            "- group_b_rate: unprivileged group selection rate\n"
+                            "- shap_summary: mean |SHAP| per feature (higher = more influential)\n"
+                            "- compliance_pass: True = model passed the EEOC 4/5ths rule\n\n"
+                            "Answer in plain English suitable for a business executive or legal team. "
+                            "Be concise, cite specific numbers from the audit data, "
+                            "and never fabricate values not present in the JSON."
+                        )
+
+                        # Build typed history for the new SDK
+                        _gemini_hist = []
+                        for _m in st.session_state.chat_history[:-1]:
+                            _role = "model" if _m["role"] == "assistant" else "user"
+                            _gemini_hist.append(
+                                _gtypes.Content(
+                                    role=_role,
+                                    parts=[_gtypes.Part(text=_m["content"])],
+                                )
+                            )
+
+                        _chat_session = _client.chats.create(
+                            model="gemini-2.5-flash",
+                            config=_gtypes.GenerateContentConfig(
+                                system_instruction=_sys,
+                            ),
+                            history=_gemini_hist,
+                        )
+                        _reply = _chat_session.send_message(_user_input).text
+
+                        st.markdown(_reply)
+                        st.session_state.chat_history.append({"role": "assistant", "content": _reply})
+
+                    except Exception as _e:
+                        _err = f"Agent error: {_e}"
+                        st.error(_err)
+                        st.session_state.chat_history.append({"role": "assistant", "content": _err})
+
+        if st.session_state.chat_history:
+            if st.button("✕  Clear conversation", key="btn_clear_chat"):
+                st.session_state.chat_history = []
+                st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -993,6 +1175,8 @@ elif st.session_state.active_page == "Audit Engine":
                         # Reset cached PDFs so they are regenerated for the new audit
                         st.session_state.report_bytes = None
                         st.session_state.cert_bytes = None
+                        st.session_state.sim_result = None
+                        st.session_state.pkg_bytes = None
                         st.success("✓ Audit complete.")
                         st.rerun()
                     else:
@@ -1079,6 +1263,33 @@ elif st.session_state.active_page == "Audit Engine":
                               disabled=True, use_container_width=True, key="dl_cert_disabled")
                 st.markdown("</div>", unsafe_allow_html=True)
 
+                # ── Regulatory Package ZIP ───────────────────────────────────
+                if st.session_state.pkg_bytes is None:
+                    try:
+                        pkg_payload = st.session_state.audit_result.copy()
+                        pkg_payload["flagged_proxies"] = st.session_state.flagged_columns
+                        pkg_resp = api_post("/audit/package", pkg_payload)
+                        if pkg_resp.status_code == 200:
+                            st.session_state.pkg_bytes = pkg_resp.content
+                    except Exception:
+                        pass
+
+                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
+                if st.session_state.pkg_bytes:
+                    st.download_button(
+                        label="↓  Download Regulatory Package (ZIP)",
+                        data=st.session_state.pkg_bytes,
+                        file_name="EquiGuard_Regulatory_Package.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        help="Full package: executive PDF, certificate, methodology, raw JSON.",
+                        key="dl_pkg",
+                    )
+                else:
+                    st.button("↓  Download Regulatory Package (ZIP)", disabled=True,
+                              use_container_width=True, key="dl_pkg_disabled")
+                st.markdown("</div>", unsafe_allow_html=True)
+
             else:
                 st.markdown("""
                 <div style="margin-top:8px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);
@@ -1087,6 +1298,7 @@ elif st.session_state.active_page == "Audit Engine":
                     <span style="color:#4b5280;">Apply mitigation and re-run to unlock.</span>
                 </div>
                 """, unsafe_allow_html=True)
+
 
         else:
             st.button("↓  Export Executive Report (PDF)", disabled=True,
@@ -1098,8 +1310,88 @@ elif st.session_state.active_page == "Audit Engine":
                       key="dl_cert_none")
             st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
-
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── What-If Simulator ─────────────────────────────────────────────────────
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⬡ What-If Mitigation Simulator</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="info-chip">◌ Simulates dropping each feature individually and retraining — projects the resulting EEOC ratio and accuracy cost.</div>
+    """, unsafe_allow_html=True)
+
+    sim_payload = {
+        "data_path": st.session_state.get("data_path", "golden_demo_dataset.csv"),
+        "target_col": st.session_state.get("target_col", "loan_approved"),
+        "protected_col": st.session_state.get("protected_col", "race"),
+    }
+
+    if st.button("⬡  Simulate Mitigation Options", key="btn_simulate", use_container_width=True):
+        with st.spinner("Running simulations — this may take 30–60 seconds…"):
+            try:
+                sim_resp = api_post("/audit/simulate", sim_payload)
+                if sim_resp.status_code == 200:
+                    st.session_state.sim_result = sim_resp.json().get("simulations", [])
+                else:
+                    st.error(f"Simulation failed: {sim_resp.status_code}")
+            except Exception as e:
+                st.error(f"Cannot reach backend: {e}")
+
+    if st.session_state.sim_result:
+        sims = st.session_state.sim_result
+        best_idx = 0  # already sorted by projected_ratio desc
+
+        rows_html = ""
+        for i, s in enumerate(sims):
+            pr   = s["projected_ratio"]
+            ad   = s["accuracy_delta"]
+            rec  = s["recommendation"]
+            feat = s["feature"]
+            acc_after = s["accuracy_after"]
+
+            # Colour: ratio
+            if pr >= 0.8:
+                ratio_color = "#4ade80"
+            elif pr >= 0.6:
+                ratio_color = "#fbbf24"
+            else:
+                ratio_color = "#f87171"
+
+            # Colour: accuracy delta
+            if ad > -0.01:
+                delta_color = "#4ade80"
+            elif ad >= -0.05:
+                delta_color = "#fbbf24"
+            else:
+                delta_color = "#f87171"
+
+            delta_sign = "+" if ad >= 0 else ""
+            rec_badge = '<span class="rec-drop">✓ Drop</span>' if rec == "drop" else '<span class="rec-keep">Keep</span>'
+            row_cls = "best-row" if i == best_idx else ""
+
+            rows_html += f"""
+            <tr class="{row_cls}">
+                <td>{feat}</td>
+                <td><span style="color:{ratio_color};font-family:'DM Mono',monospace;font-weight:600;">{pr:.4f}</span></td>
+                <td><span style="color:{delta_color};font-family:'DM Mono',monospace;">{delta_sign}{ad:.4f}</span></td>
+                <td>{rec_badge}</td>
+            </tr>"""
+
+        st.markdown(f"""
+        <table class="sim-table">
+            <thead><tr>
+                <th>Feature</th>
+                <th>Drop → Projected Ratio</th>
+                <th>Accuracy Cost</th>
+                <th>Recommendation</th>
+            </tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+        <div style="margin-top:10px;font-size:11px;color:#3a3d52;font-family:'DM Mono',monospace;">
+            * Projections are estimates based on held-out test set retraining. Highlighted row = best single feature to drop.
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1154,6 +1446,68 @@ elif st.session_state.active_page == "Bias Leaderboard":
                     """, unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # ── Mitigation Impact Comparison ──────────────────────────────
+                if len(history_data) >= 2:
+                    _before = history_data[-2]
+                    _after  = history_data[-1]
+                    _br = _before.get("fairness_ratio", 0.0)
+                    _ar = _after.get("fairness_ratio", 0.0)
+                    _delta = _ar - _br
+                    _delta_color = "#4ade80" if _delta >= 0 else "#f87171"
+                    _delta_sign  = "+" if _delta >= 0 else ""
+                    _bpass = _before.get("compliance_pass", False)
+                    _apass = _after.get("compliance_pass", False)
+                    _bbadge = '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>' if _bpass else '<span class="badge-fail" style="font-size:11px;padding:3px 10px;">FAIL</span>'
+                    _abadge = '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>' if _apass else '<span class="badge-fail" style="font-size:11px;padding:3px 10px;">FAIL</span>'
+                    _net_word = "improved" if _delta >= 0 else "worsened"
+                    _net_color = "#4ade80" if _delta >= 0 else "#f87171"
+
+                    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+                    st.markdown('<div class="section-title">⟳ Mitigation Impact</div>', unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class="compare-grid">
+                        <div class="compare-side">
+                            <div class="compare-label">Before Mitigation</div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">Fairness Ratio</div>
+                                <div class="compare-metric-value">{_br:.4f}</div>
+                            </div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">EEOC Status</div>
+                                <div style="margin-top:4px;">{_bbadge}</div>
+                            </div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">Top Feature</div>
+                                <div style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;margin-top:4px;">{_before.get('top_feature','—')}</div>
+                            </div>
+                        </div>
+                        <div class="compare-side">
+                            <div class="compare-label">After Mitigation</div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">Fairness Ratio</div>
+                                <div class="compare-metric-value" style="color:{_delta_color};">
+                                    {_ar:.4f}
+                                    <span style="font-size:14px;font-family:'DM Mono',monospace;margin-left:8px;">
+                                        {_delta_sign}{_delta:.4f} {'↑' if _delta >= 0 else '↓'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">EEOC Status</div>
+                                <div style="margin-top:4px;">{_abadge}</div>
+                            </div>
+                            <div class="compare-metric">
+                                <div class="compare-metric-label">Top Feature</div>
+                                <div style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;margin-top:4px;">{_after.get('top_feature','—')}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:14px;padding:10px 14px;background:#0a0b10;border-radius:10px;border:1px solid #1a1c28;font-size:13px;color:#c8cad4;">
+                        Net result: Fairness ratio <strong style="color:{_net_color};">{_net_word} by {_delta_sign}{_delta:.4f}</strong> after proxy removal.
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
             else:
                 st.markdown("""
                 <div class="section-card" style="text-align:center;padding:3rem;">
@@ -1165,3 +1519,173 @@ elif st.session_state.active_page == "Bias Leaderboard":
             st.error("Failed to fetch audit history from backend.")
     except Exception as e:
         st.error(f"Could not connect to backend: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: INTERSECTIONAL
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.active_page == "Intersectional":
+
+    st.markdown("""
+    <div class="eq-header">
+        <div>
+            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f0f1f5;">Intersectional Audit</div>
+            <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:2px;">
+                A model can pass for one group while failing another. This view audits all detected demographic attributes simultaneously.
+            </div>
+        </div>
+        <div class="eq-status-dot">Multi-Attribute</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    ix_payload = {
+        "data_path": st.session_state.get("data_path", "golden_demo_dataset.csv"),
+        "target_col": st.session_state.get("target_col", "loan_approved"),
+    }
+
+    if st.button("⬢  Run Intersectional Audit", key="btn_ix", use_container_width=False):
+        with st.spinner("Scanning all protected attributes…"):
+            try:
+                ix_resp = api_post("/audit/intersectional", ix_payload)
+                if ix_resp.status_code == 200:
+                    st.session_state.intersectional_result = ix_resp.json()
+                    st.session_state.ix_summary = None  # Reset AI summary for new audit
+                else:
+                    st.error(f"Intersectional audit failed: {ix_resp.status_code}")
+            except Exception as e:
+                st.error(f"Cannot reach backend: {e}")
+
+    ix = st.session_state.intersectional_result
+    if ix:
+        prot_cols = ix.get("protected_columns", [])
+        ratios    = ix.get("ratios", {})
+        corrs     = ix.get("correlations", {})
+
+        # ── Compliance badge row ─────────────────────────────────────────────
+        if prot_cols:
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">◈ Compliance Status per Attribute</div>', unsafe_allow_html=True)
+            badges_html = ""
+            for col in prot_cols:
+                r = ratios.get(col)
+                if r is None:
+                    badge_color = "#6b7280"; badge_text = "N/A"
+                elif r >= 0.8:
+                    badge_color = "#4ade80"; badge_text = "PASS"
+                else:
+                    badge_color = "#f87171"; badge_text = "FAIL"
+                badges_html += f"""
+                <div class="ix-badge">
+                    <div class="ix-badge-label">{col}</div>
+                    <div class="ix-badge-val" style="color:{badge_color};">{badge_text}</div>
+                    <div style="font-size:11px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:4px;">{f'{r:.4f}' if r is not None else '—'}</div>
+                </div>"""
+            st.markdown(f'<div style="display:flex;flex-wrap:wrap;margin-top:8px;">{badges_html}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── Correlation heatmap ──────────────────────────────────────────────
+        if prot_cols and corrs:
+            features = list(corrs.keys())
+            z_matrix = [[corrs[f].get(c, 0.0) for c in prot_cols] for f in features]
+
+            fig_ix = go.Figure(go.Heatmap(
+                z=z_matrix,
+                x=prot_cols,
+                y=features,
+                colorscale=[
+                    [0.0,  "#0d0e14"],
+                    [0.15, "#1a1c40"],
+                    [0.5,  "#6b21a8"],
+                    [1.0,  "#ef4444"],
+                ],
+                zmin=0, zmax=1,
+                hovertemplate="<b>%{y}</b> × <b>%{x}</b><br>|r| = %{z:.4f}<extra></extra>",
+                colorbar=dict(
+                    title=dict(
+                        text="| Pearson r |",
+                        font=dict(color="#6b7280", size=10, family="DM Mono"),
+                    ),
+                    tickfont=dict(color="#6b7280", size=10, family="DM Mono"),
+                ),
+
+            ))
+            # Threshold annotation line
+            fig_ix.add_shape(
+                type="line", x0=-0.5, x1=len(prot_cols)-0.5,
+                y0=-0.5, y1=-0.5,
+                line=dict(color="rgba(0,0,0,0)", width=0),
+            )
+            fig_ix.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#6b7280", family="DM Sans", size=12),
+                margin=dict(l=10, r=10, t=30, b=10),
+                height=max(260, len(features) * 36),
+                xaxis=dict(side="top", tickfont=dict(color="#c8cad4", size=12)),
+                yaxis=dict(tickfont=dict(color="#c8cad4", size=11), autorange="reversed"),
+            )
+
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">⬢ Feature × Protected Attribute Correlation</div>', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="info-chip">◌ Cells above 0.15 (proxy hunter threshold) indicate potential proxy bias. Cells above 0.5 indicate high correlation risk.</div>
+            """, unsafe_allow_html=True)
+            st.plotly_chart(fig_ix, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── AI Correlation Summary ──────────────────────────────────────────
+            st.markdown('<div class="section-card">', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">✨ AI Correlation Summary</div>', unsafe_allow_html=True)
+            
+            _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+            if not _gemini_key:
+                st.markdown('<div class="info-chip">◌ Set <span style="color:#f0f1f5;">GEMINI_API_KEY</span> in your .env to enable AI summaries.</div>', unsafe_allow_html=True)
+            else:
+                if st.session_state.ix_summary:
+                    st.markdown(f'<div style="font-size:13px;color:#c8cad4;font-family:\'DM Sans\',sans-serif;line-height:1.6;">{st.session_state.ix_summary}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-bottom:1rem;">
+                        Analyze the correlation matrix above for hidden proxy variables using Gemini.
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("✨ Generate AI Summary", key="btn_ix_summary"):
+                        with st.spinner("Analyzing correlation matrix..."):
+                            try:
+                                from google import genai as _genai
+                                from google.genai import types as _gtypes
+                                _client = _genai.Client(api_key=_gemini_key)
+                                
+                                _sys_prompt = (
+                                    "You are an AI bias detection expert conducting a detailed intersectional audit. "
+                                    "Analyze the following Pearson correlation matrix between dataset features and protected demographic attributes.\n\n"
+                                    "Correlation Matrix JSON:\n" + json.dumps(corrs, indent=2) + "\n\n"
+                                    "Please provide a comprehensive, multi-paragraph analysis with the following structure:\n"
+                                    "1. **High-Risk Proxies (|r| > 0.5):** Detail any features strongly correlated with protected attributes. Explain why this poses a severe legal or ethical risk.\n"
+                                    "2. **Moderate-Risk Proxies (0.15 < |r| <= 0.5):** List features showing moderate correlation. Provide a brief hypothesis on how these variables might unintentionally encode demographic data.\n"
+                                    "3. **Safe Features (|r| <= 0.15):** Briefly summarize which features appear statistically independent of protected attributes.\n"
+                                    "4. **Actionable Recommendations:** Suggest 2-3 specific mitigation strategies for the data science team (e.g., feature dropping, orthogonalization, or re-weighting).\n\n"
+                                    "Ensure the tone is professional and objective. Use Markdown formatting (bolding, bullet points) to make the report highly readable. "
+                                    "If no features cross a threshold, explicitly state that."
+                                )
+                                
+                                _chat = _client.chats.create(
+                                    model="gemini-2.5-flash",
+                                    config=_gtypes.GenerateContentConfig(system_instruction=_sys_prompt)
+                                )
+                                _reply = _chat.send_message("Please summarize the proxy risks in this correlation table.").text
+                                
+                                st.session_state.ix_summary = _reply
+                                st.rerun()
+                            except Exception as _e:
+                                st.error(f"Failed to generate summary: {_e}")
+            st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="section-card" style="text-align:center;padding:3rem;">
+            <div style="font-size:48px;opacity:0.08;margin-bottom:1rem;">⬢</div>
+            <div style="font-size:14px;color:#3a3d52;font-family:'DM Mono',monospace;">
+                Click "Run Intersectional Audit" to scan all detected demographic attributes simultaneously.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)

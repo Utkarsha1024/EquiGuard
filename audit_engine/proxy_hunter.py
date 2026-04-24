@@ -17,7 +17,7 @@ def find_proxies(dataset_df: pd.DataFrame, protected_col: str, target_col: str, 
         return []
         
     y = df[protected_col]
-    if y.dtype == 'object' or y.dtype.name == 'category':
+    if not pd.api.types.is_numeric_dtype(y):
         y = y.astype('category').cat.codes
         
     # Drop target and protected column from features, select numeric features only

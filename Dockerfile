@@ -21,8 +21,10 @@ WORKDIR /app
 # Install Python deps first (cached layer — only rebuilds when requirements change)
 COPY requirements.txt .
 ENV SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Use uv — a Rust-based SAT resolver that handles deep Google Cloud dependency
+# graphs in seconds without hitting pip's resolution-too-deep error.
+RUN pip install --quiet uv && \
+    uv pip install --system --no-cache -r requirements.txt
 
 # Copy project source
 COPY . .

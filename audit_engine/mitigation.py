@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score
 
-def mitigate_and_retrain(flagged_columns: list, data_path: str = "golden_demo_dataset.csv", target_col: str = "loan_approved", protected_col: str = "race"):
+def mitigate_and_retrain(flagged_columns: list, data_path: str = "data/golden_demo_dataset.csv", target_col: str = "loan_approved", protected_col: str = "race"):
     df = pd.read_csv(data_path)
     
     df = df.dropna(subset=[target_col, protected_col])
@@ -16,7 +16,7 @@ def mitigate_and_retrain(flagged_columns: list, data_path: str = "golden_demo_da
     df[target_col] = LabelEncoder().fit_transform(df[target_col])
     
     # Protected Binarization: Ensure discrete groups for EEOC math
-    if np.issubdtype(df[protected_col].dtype, np.number):
+    if pd.api.types.is_numeric_dtype(df[protected_col]):
         if len(df[protected_col].unique()) > 2:
             median_val = df[protected_col].median()
             df[protected_col] = (df[protected_col] >= median_val).astype(int)

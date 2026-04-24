@@ -193,6 +193,13 @@ X-API-Key: <your key from .env>
 | `POST` | `/audit/export` | Required | Download executive summary PDF |
 | `GET` | `/audit/history` | Required | Retrieve full audit log from SQLite |
 | `POST` | `/audit/certificate` | Required | Generate EEOC compliance certificate PDF |
+| `POST` | `/audit/simulate` | Required | What-if simulator — project fairness ratio per feature drop |
+| `POST` | `/audit/intersectional` | Required | Multi-attribute intersectional audit + correlation heatmap |
+| `POST` | `/audit/package` | Required | Download full regulatory ZIP (PDF + cert + methodology + JSON) |
+| `POST` | `/audit/narrative` | Required | **[AI]** Generate Gemini legal risk narrative (3 paragraphs) |
+| `POST` | `/audit/vision` | Required | **[AI]** Scan image for demographic data leakage (Vision AI) |
+| `POST` | `/audit/remediate` | Required | **[AI]** Generate 3 bias mitigation strategies (Vertex AI) |
+
 
 ### Example: run a full compliance audit
 
@@ -289,6 +296,79 @@ For significant changes, please open an issue first to discuss the approach.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## Google AI Features
+
+Three Google AI integrations are built into EquiGuard and degrade gracefully when credentials are not configured.
+
+| Feature | Endpoint | Powered By | Fallback |
+|---|---|---|---|
+| **Gemini Legal Risk Narrative** | `POST /audit/narrative` | Gemini 1.5 Flash | Template string |
+| **Visual Bias Scanner** | `POST /audit/vision` | Cloud Vision AI | `UNKNOWN` risk level |
+| **Vertex AI Remediation Agent** | `POST /audit/remediate` | Vertex AI Gemini | Parameterised code template |
+
+---
+
+## Google AI Setup (5 minutes)
+
+### 1. Create a GCP project
+
+Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project or select an existing one.
+
+### 2. Enable APIs
+
+In your project, enable these two APIs:
+- **Cloud Vision API**
+- **Vertex AI API**
+
+### 3. Create a service account
+
+1. Go to **IAM & Admin → Service Accounts → Create Service Account**
+2. Give it a name (e.g. `equiguard-sa`)
+3. Assign these roles:
+   - `Vertex AI User`
+   - `Cloud Vision API User`
+4. Click **Done**
+
+### 4. Download credentials
+
+1. Click the service account you just created
+2. Go to the **Keys** tab → **Add Key → Create new key → JSON**
+3. Save the downloaded file as `gcp-credentials.json` in the project root
+4. Add it to `.gitignore` (already included in the template)
+
+### 5. Get a Gemini API key
+
+Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and create a key.
+
+### 6. Configure `.env`
+
+```env
+GEMINI_API_KEY=your-gemini-api-key-here
+GOOGLE_APPLICATION_CREDENTIALS=./gcp-credentials.json
+GCP_PROJECT_ID=your-actual-project-id
+GCP_LOCATION=us-central1
+```
+
+### 7. Install the Google AI packages
+
+```bash
+pip install google-cloud-vision google-cloud-aiplatform google-generativeai
+```
+
+Or simply run `pip install -r requirements.txt` — all three are already listed.
+
+### Behaviour without credentials
+
+| Credential missing | Behaviour |
+|---|---|
+| `GEMINI_API_KEY` not set | Narrative endpoint returns a plain-text template string |
+| `GOOGLE_APPLICATION_CREDENTIALS` not set | Vision endpoint returns `{"risk_level": "UNKNOWN", "error": "..."}` |
+| `GCP_PROJECT_ID` not set | Remediate endpoint returns parameterised Python template code |
+
+The application never crashes — all AI features degrade gracefully.
 
 ---
 

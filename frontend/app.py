@@ -1,4 +1,7 @@
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import json
 import streamlit as st
 import requests
@@ -9,17 +12,6 @@ from dotenv import load_dotenv
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv()
-
-# ── API Config ─────────────────────────────────────────────────────────────────
-API_BASE    = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-_API_KEY    = os.getenv("EQUIGUARD_API_KEY", "")
-API_HEADERS = {"X-API-Key": _API_KEY} if _API_KEY else {}
-
-def api_get(path: str):
-    return requests.get(f"{API_BASE}{path}", headers=API_HEADERS)
-
-def api_post(path: str, json: dict):
-    return requests.post(f"{API_BASE}{path}", json=json, headers=API_HEADERS)
 
 # ── Session State ──────────────────────────────────────────────────────────────
 if "audit_result" not in st.session_state:
@@ -34,6 +26,19 @@ if "cert_bytes" not in st.session_state:
     st.session_state.cert_bytes = None
 if "sim_result" not in st.session_state:
     st.session_state.sim_result = None
+# ── Google AI feature state ─────────────────────────────────────────────────────────────
+if "narrative" not in st.session_state:
+    st.session_state.narrative = None          # Gemini Risk Narrative
+if "narrative_model" not in st.session_state:
+    st.session_state.narrative_model = "template"
+if "mitigation_code" not in st.session_state:
+    st.session_state.mitigation_code = None    # Vertex AI Remediation
+if "mitigation_model" not in st.session_state:
+    st.session_state.mitigation_model = "template"
+if "mitigation_note" not in st.session_state:
+    st.session_state.mitigation_note = ""
+if "vision_result" not in st.session_state:
+    st.session_state.vision_result = None      # Vision AI Scan result
 if "pkg_bytes" not in st.session_state:
     st.session_state.pkg_bytes = None
 if "intersectional_result" not in st.session_state:
@@ -42,6 +47,16 @@ if "ix_summary" not in st.session_state:
     st.session_state.ix_summary = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []  # [{"role": "user"|"assistant", "content": str}]
+# ── New feature state
+if "comparison_result" not in st.session_state:
+    st.session_state.comparison_result = None
+if "preflight_result" not in st.session_state:
+    st.session_state.preflight_result = None
+if "backend_status" not in st.session_state:
+    st.session_state.backend_status = None
+if "hero_dismissed" not in st.session_state:
+    st.session_state.hero_dismissed = False
+
 
 # ── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -61,18 +76,59 @@ html, body, [class*="css"] {
     font-family: 'DM Sans', sans-serif;
 }
 .stApp {
-    background-color: #080910;
+    background-color: #050609;
     color: #c8cad4;
+    /* Subtle dot-grid background */
+    background-image:
+        radial-gradient(rgba(99,102,241,0.12) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-attachment: fixed;
 }
 .block-container {
     padding: 0 2rem 2rem 2rem !important;
     max-width: 100% !important;
 }
 
-/* ── Hide default Streamlit chrome ── */
-#MainMenu, footer, header { visibility: hidden; }
-[data-testid="stToolbar"] { display: none; }
+/* ── Hide default Streamlit chrome (without touching the sidebar toggle) ── */
+#MainMenu, footer { visibility: hidden; }
+[data-testid="stToolbar"]          { display: none !important; }
+[data-testid="stAppDeployButton"]  { display: none !important; }
+[data-testid="stStatusWidget"]     { visibility: hidden; }
+header { background: transparent !important; }
 section[data-testid="stSidebar"] > div { background: #0d0e14; border-right: 1px solid #1e2030; }
+
+/* ── Hide the collapse (<<) button so the sidebar stays permanently open ── */
+/* This prevents users getting trapped without navigation */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapseSidebarButton"],
+section[data-testid="stSidebar"] button[aria-label="Collapse sidebar"],
+section[data-testid="stSidebar"] button[title="Collapse sidebar"] {
+    display: none !important;
+}
+
+/* ── Expand (>>) button — styled prominently as a fallback ── */
+/* If the sidebar IS collapsed, this pill is always findable */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    visibility: visible !important;
+    display: flex !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    position: fixed !important;
+    top: 0.6rem !important;
+    left: 0.6rem !important;
+    z-index: 99999 !important;
+    background: #6366f1 !important;
+    border-radius: 8px !important;
+    padding: 6px 10px !important;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.4) !important;
+}
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg {
+    fill: #ffffff !important;
+    color: #ffffff !important;
+}
+
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {
@@ -446,12 +502,376 @@ hr { border-color: #1a1c28 !important; }
 [data-testid="stChatMessage"] p { font-size:13px !important; color:#c8cad4 !important; font-family:'DM Sans',sans-serif !important; line-height:1.65 !important; }
 [data-testid="stChatInputContainer"] { background:#0d0e14 !important; border:1px solid #1e2030 !important; border-radius:12px !important; }
 [data-testid="stChatInputContainer"]:focus-within { border-color:#6366f1 !important; }
+
+/* ── Gemini Narrative Card ── */
+.gemini-narrative { background:#0d0e14; border:1px solid #1a1c28; border-radius:16px; padding:1.5rem 1.75rem; position:relative; }
+.gemini-narrative.pass { border-left:4px solid #22c55e; }
+.gemini-narrative.fail { border-left:4px solid #ef4444; }
+.gemini-narrative-text { font-size:13px; color:#c8cad4; font-family:'DM Sans',sans-serif; line-height:1.8; }
+.gemini-narrative-text p { margin:0 0 12px 0; }
+.gemini-badge { position:absolute; bottom:1rem; right:1.25rem; font-size:10px; color:#6366f1; font-family:'DM Mono',monospace; letter-spacing:1px; }
+
+/* ── Risk Level Box (Vision Scanner) ── */
+.risk-box { border-radius:14px; padding:1.5rem; text-align:center; margin-bottom:1rem; }
+.risk-box.critical { background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); animation:risk-pulse 1.5s infinite; }
+.risk-box.high     { background:rgba(251,146,60,0.12); border:1px solid rgba(251,146,60,0.35); }
+.risk-box.medium   { background:rgba(251,191,36,0.10); border:1px solid rgba(251,191,36,0.3); }
+.risk-box.low      { background:rgba(74,222,128,0.10); border:1px solid rgba(74,222,128,0.3); }
+@keyframes risk-pulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0.3); }
+    50%      { box-shadow:0 0 16px 4px rgba(239,68,68,0.2); }
+}
+.risk-label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:#6b7280; font-family:'DM Mono',monospace; margin-bottom:6px; }
+.risk-level { font-family:'Syne',sans-serif; font-size:32px; font-weight:800; }
+
+/* ── Pill badges ── */
+.pill-red  { display:inline-block; background:rgba(239,68,68,0.12); color:#f87171; border:1px solid rgba(239,68,68,0.3); padding:3px 10px; border-radius:50px; font-size:11px; font-family:'DM Mono',monospace; margin:3px; }
+.pill-amber{ display:inline-block; background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); padding:3px 10px; border-radius:50px; font-size:11px; font-family:'DM Mono',monospace; margin:3px; }
+
+/* ── Vertex AI banner ── */
+.vertex-banner { background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.25); border-radius:12px; padding:10px 16px; display:flex; align-items:center; gap:10px; margin-bottom:1rem; }
+.vertex-banner-icon { font-size:18px; }
+.vertex-banner-text { font-size:12px; color:#4ade80; font-family:'DM Mono',monospace; line-height:1.4; }
+.vertex-banner-sub  { font-size:11px; color:#4b5280; font-family:'DM Sans',sans-serif; margin-top:2px; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   EquiGuard  ·  Motion & Delight Layer
+   Inspired by ReactBits text-animations / animations + Barba.js
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ── Aurora sidebar background ─────────────────────────────────────── */
+@keyframes aurora-shift {
+    0%   { background-position: 0% 50%;   }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%;   }
+}
+[data-testid="stSidebar"] > div:first-child {
+    background: linear-gradient(
+        160deg,
+        #0d0e14 0%,
+        #0f1022 30%,
+        #0d1228 60%,
+        #0d0e14 100%
+    ) !important;
+    background-size: 300% 300% !important;
+    animation: aurora-shift 12s ease infinite !important;
+}
+
+/* ── Shimmer brand name text (ReactBits: TextShimmer) ──────────────── */
+@keyframes text-shimmer {
+    0%   { background-position: -400% center; }
+    100% { background-position:  400% center; }
+}
+.eq-brand-name {
+    background: linear-gradient(
+        90deg,
+        #818cf8 0%,
+        #f0f1f5 30%,
+        #c7d2fe 50%,
+        #6366f1 70%,
+        #f0f1f5 90%
+    ) !important;
+    background-size: 400% auto !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+    animation: text-shimmer 4s linear infinite !important;
+}
+
+/* ── BlurIn page section entrance (ReactBits: BlurIn) ──────────────── */
+@keyframes blur-in {
+    0%   { opacity: 0; filter: blur(18px); transform: translateY(14px); }
+    100% { opacity: 1; filter: blur(0px);  transform: translateY(0);    }
+}
+.section-card {
+    animation: blur-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Staggered entrance — each consecutive card slightly delayed */
+.section-card:nth-child(1)  { animation-delay: 0.05s; }
+.section-card:nth-child(2)  { animation-delay: 0.12s; }
+.section-card:nth-child(3)  { animation-delay: 0.19s; }
+.section-card:nth-child(4)  { animation-delay: 0.26s; }
+.section-card:nth-child(5)  { animation-delay: 0.33s; }
+.section-card:nth-child(n+6){ animation-delay: 0.40s; }
+
+/* KPI cards: slide+fade in from bottom */
+@keyframes kpi-rise {
+    0%   { opacity: 0; transform: translateY(20px) scale(0.97); }
+    100% { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.kpi-card {
+    animation: kpi-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.kpi-card:nth-child(1) { animation-delay: 0.08s; }
+.kpi-card:nth-child(2) { animation-delay: 0.16s; }
+.kpi-card:nth-child(3) { animation-delay: 0.24s; }
+.kpi-card:nth-child(4) { animation-delay: 0.32s; }
+
+/* ── Glowing card hover (ReactBits: GlowingEffect) ─────────────────── */
+.section-card {
+    transition: border-color 0.35s ease, box-shadow 0.35s ease, transform 0.2s ease !important;
+    will-change: transform;
+}
+.section-card:hover {
+    border-color: rgba(99, 102, 241, 0.35) !important;
+    box-shadow:
+        0 0 0 1px rgba(99,102,241,0.12),
+        0 0 24px rgba(99,102,241,0.12),
+        0 0 60px rgba(99,102,241,0.06),
+        0 8px 32px rgba(0,0,0,0.4) !important;
+    transform: translateY(-2px) !important;
+}
+.kpi-card:hover {
+    border-color: rgba(99,102,241,0.3) !important;
+    box-shadow:
+        0 0 20px rgba(99,102,241,0.1),
+        0 4px 20px rgba(0,0,0,0.4) !important;
+    transform: translateY(-3px) scale(1.01) !important;
+    transition: all 0.25s cubic-bezier(0.22,1,0.36,1) !important;
+}
+
+/* ── Animated gradient border on active nav item ────────────────────── */
+@keyframes border-spin {
+    0%   { background-position: 0% 50%;   }
+    100% { background-position: 200% 50%; }
+}
+.nav-item.active {
+    background:
+        linear-gradient(#0d0e14, #0d0e14) padding-box,
+        linear-gradient(90deg, #6366f1, #818cf8, #a5b4fc, #6366f1) border-box !important;
+    background-size: auto, 300% auto !important;
+    border: 1px solid transparent !important;
+    animation: border-spin 3s linear infinite !important;
+}
+
+/* ── Nav item hover: lift + glow ───────────────────────────────────── */
+.nav-item {
+    transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+.nav-item:hover {
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(129,140,248,0.05)) !important;
+    color: #c8cad4 !important;
+    transform: translateX(4px) !important;
+    box-shadow: inset 3px 0 0 #6366f1 !important;
+}
+
+/* ── Barba.js-style page wipe overlay ──────────────────────────────── */
+#eq-page-wipe {
+    position: fixed;
+    inset: 0;
+    z-index: 99998;
+    pointer-events: none;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    clip-path: circle(0% at 50% 50%);
+    transition: clip-path 0.45s cubic-bezier(0.76, 0, 0.24, 1);
+}
+#eq-page-wipe.in  { clip-path: circle(150% at 50% 50%); }
+#eq-page-wipe.out {
+    clip-path: circle(0% at 50% 50%);
+    transition: clip-path 0.4s cubic-bezier(0.76, 0, 0.24, 1) 0.05s;
+}
+
+/* ── Cursor glow (follows mouse) ────────────────────────────────────── */
+#eq-cursor-glow {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9997;
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle,
+        rgba(99,102,241,0.06) 0%,
+        rgba(99,102,241,0.02) 40%,
+        transparent 70%
+    );
+    transform: translate(-50%, -50%);
+    transition: left 0.08s linear, top 0.08s linear;
+    will-change: left, top;
+}
+
+/* ── Button micro-animations ────────────────────────────────────────── */
+.stButton > button {
+    transition: all 0.2s cubic-bezier(0.22,1,0.36,1) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+.stButton > button::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+.stButton > button:hover::after { opacity: 1 !important; }
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+}
+.stButton > button:active {
+    transform: translateY(0px) scale(0.98) !important;
+}
+
+/* ── Section title scramble placeholder ────────────────────────────── */
+.section-title { cursor: default; }
+
+/* ── Eq-header blur-in ──────────────────────────────────────────────── */
+@keyframes header-in {
+    0%   { opacity: 0; transform: translateY(-8px); }
+    100% { opacity: 1; transform: translateY(0);    }
+}
+.eq-header {
+    animation: header-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
+# ── Motion JS: cursor glow · page wipe · scramble text · magnetic cards ──────
+st.markdown("""
+<div id="eq-page-wipe"></div>
+<div id="eq-cursor-glow"></div>
+
+<script>
+(function() {
+    /* ── 1. Cursor glow ─────────────────────────────────────────────────── */
+    const glow = document.getElementById('eq-cursor-glow');
+    if (glow) {
+        document.addEventListener('mousemove', e => {
+            glow.style.left = e.clientX + 'px';
+            glow.style.top  = e.clientY + 'px';
+        });
+    }
+
+    /* ── 2. Barba.js-style page wipe on nav clicks ───────────────────── */
+    function pageWipe(cb) {
+        const wipe = document.getElementById('eq-page-wipe');
+        if (!wipe) { cb && cb(); return; }
+        wipe.classList.remove('out');
+        wipe.classList.add('in');
+        setTimeout(() => {
+            cb && cb();
+            wipe.classList.remove('in');
+            wipe.classList.add('out');
+            setTimeout(() => wipe.classList.remove('out'), 500);
+        }, 420);
+    }
+
+    /* Wire nav items to trigger the wipe then let Streamlit handle routing */
+    function wireNavItems() {
+        document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+            if (el._wired) return;
+            el._wired = true;
+            el.addEventListener('click', () => pageWipe());
+        });
+    }
+
+    /* ── 3. Scramble text on section-title hover (ReactBits: ScrambleText) ── */
+    const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789◎◈◉⬢';
+    function scramble(el) {
+        const original = el.dataset.original || el.textContent.trim();
+        if (!el.dataset.original) el.dataset.original = original;
+        let frame = 0;
+        const total = 12;
+        if (el._scramTimer) clearInterval(el._scramTimer);
+        el._scramTimer = setInterval(() => {
+            frame++;
+            const progress = frame / total;
+            el.textContent = original
+                .split('')
+                .map((ch, i) => {
+                    if (ch === ' ') return ' ';
+                    if (i / original.length < progress) return ch;
+                    return CHARSET[Math.floor(Math.random() * CHARSET.length)];
+                })
+                .join('');
+            if (frame >= total) {
+                clearInterval(el._scramTimer);
+                el.textContent = original;
+            }
+        }, 40);
+    }
+
+    function wireSectionTitles() {
+        document.querySelectorAll('.section-title').forEach(el => {
+            if (el._scramWired) return;
+            el._scramWired = true;
+            el.addEventListener('mouseenter', () => scramble(el));
+        });
+    }
+
+    /* ── 4. Magnetic card hover (ReactBits: Magnet) ──────────────────── */
+    function wireMagneticCards() {
+        document.querySelectorAll('.kpi-card').forEach(card => {
+            if (card._magWired) return;
+            card._magWired = true;
+            card.addEventListener('mousemove', e => {
+                const r  = card.getBoundingClientRect();
+                const cx = r.left + r.width  / 2;
+                const cy = r.top  + r.height / 2;
+                const dx = (e.clientX - cx) / (r.width  / 2);
+                const dy = (e.clientY - cy) / (r.height / 2);
+                card.style.transform =
+                    'translateY(-3px) scale(1.01) rotateX(' + (-dy * 4) + 'deg) rotateY(' + (dx * 4) + 'deg)';
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = '';
+                card.style.transition = 'transform 0.4s cubic-bezier(0.22,1,0.36,1)';
+            });
+        });
+    }
+
+    /* ── 5. BlurIn for dynamically added section cards ───────────────── */
+    let seenCards = new WeakSet();
+    function animateNewCards() {
+        document.querySelectorAll('.section-card').forEach(card => {
+            if (seenCards.has(card)) return;
+            seenCards.add(card);
+            card.style.opacity = '0';
+            card.style.filter  = 'blur(16px)';
+            card.style.transform = 'translateY(12px)';
+            card.style.transition = 'opacity 0.55s ease, filter 0.55s ease, transform 0.55s ease';
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                card.style.opacity   = '1';
+                card.style.filter    = 'blur(0)';
+                card.style.transform = 'translateY(0)';
+            }));
+        });
+    }
+
+    /* ── Run all wiringon DOM mutations (Streamlit re-renders) ───────── */
+    function runAll() {
+        wireNavItems();
+        wireSectionTitles();
+        wireMagneticCards();
+        animateNewCards();
+    }
+
+    const observer = new MutationObserver(() => runAll());
+    observer.observe(document.body, { childList: true, subtree: true });
+    runAll();
+
+    /* Trigger page-wipe on Streamlit internal navigation signals */
+    window.addEventListener('message', e => {
+        if (e.data && e.data.type === 'streamlit:render') {
+            pageWipe();
+        }
+    });
+})();
+</script>
+""", unsafe_allow_html=True)
+
+
+# ── Hero landing page (shown once per session) ─────────────────────────────────
+if not st.session_state.get("hero_dismissed", False):
+    from frontend.hero import render_hero
+    render_hero()
+    st.stop()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
+
     st.markdown("""
     <div style="padding: 1.2rem 1.2rem 0.5rem; border-bottom: 1px solid #1a1c28; margin-bottom: 0.5rem;">
         <div style="display:flex;align-items:center;gap:10px;">
@@ -467,35 +887,60 @@ with st.sidebar:
     st.markdown('<div class="nav-section-label">Navigation</div>', unsafe_allow_html=True)
 
     pages = [
-        ("Dashboard", "◈", "Overview & compliance status"),
-        ("Audit Engine", "⬡", "Run bias audits"),
-        ("Bias Leaderboard", "◉", "Historical drift tracking"),
-        ("Intersectional", "⬢", "Multi-attribute bias heatmap"),
+        ("Dashboard",         "◈",  "Overview & compliance status"),
+        ("Audit Engine",      "⬡",  "Run bias audits"),
+        ("Bias Leaderboard",  "◉",  "Historical drift tracking"),
+        ("Model Comparison",  "⧡",  "Pareto accuracy vs fairness"),
+        ("Vision Scanner",    "◎",  "Image bias scanner"),
+        ("Intersectional",    "⬢",  "Multi-attribute bias heatmap"),
     ]
 
     for page, icon, _ in pages:
         is_active = st.session_state.active_page == page
         cls = "nav-item active" if is_active else "nav-item"
-        if st.sidebar.button(f"{icon}  {page}", key=f"nav_{page}", use_container_width=True):
+        if st.sidebar.button(f"{icon}  {page}", key=f"nav_{page}", width="stretch"):
             st.session_state.active_page = page
             st.rerun()
 
     st.markdown('<div class="nav-section-label" style="margin-top:1rem;">System</div>', unsafe_allow_html=True)
-    st.markdown("""
+
+    # Live backend health probe
+    _backend_online = False
+    try:
+        from frontend.utils import api_get as _api_get
+        _health_resp = _api_get("/health")
+        _backend_online = _health_resp.status_code == 200
+    except Exception:
+        _backend_online = False
+    st.session_state.backend_status = _backend_online
+
+    _be_color  = "#4ade80" if _backend_online else "#f87171"
+    _be_label  = "● Online" if _backend_online else "● Offline"
+
+    # Webhook status
+    _wh_enabled = os.getenv("WEBHOOK_ENABLED", "false").lower() == "true"
+    _wh_color   = "#818cf8" if _wh_enabled else "#3a3d52"
+    _wh_label   = "● Enabled" if _wh_enabled else "● Disabled"
+
+    st.markdown(f"""
     <div style="padding: 0 8px;">
         <div style="background:#0a0b10;border:1px solid #1a1c28;border-radius:12px;padding:12px 14px;margin-top:4px;">
             <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">System Status</div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="font-size:12px;color:#6b7280;">Backend API</span>
-                <span style="font-size:11px;color:#4ade80;font-family:'DM Mono',monospace;">● Online</span>
+                <span style="font-size:11px;color:{_be_color};font-family:'DM Mono',monospace;">{_be_label}</span>
             </div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="font-size:12px;color:#6b7280;">EEOC Engine</span>
                 <span style="font-size:11px;color:#4ade80;font-family:'DM Mono',monospace;">● Active</span>
             </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <span style="font-size:12px;color:#6b7280;">SHAP Explainer</span>
                 <span style="font-size:11px;color:#4ade80;font-family:'DM Mono',monospace;">● Ready</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:12px;color:#6b7280;">Alerting</span>
+                <span style="font-size:11px;color:{_wh_color};font-family:'DM Mono',monospace;">{_wh_label}</span>
             </div>
         </div>
     </div>
@@ -508,1184 +953,28 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 
-# ── Gauge Chart ────────────────────────────────────────────────────────────────
-def render_fairness_gauge(score):
-    color = "#4ade80" if score >= 0.8 else ("#fbbf24" if score >= 0.6 else "#f87171")
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Fairness Ratio", 'font': {'color': '#6b7280', 'size': 13, 'family': 'DM Mono'}},
-        number={'font': {'color': color, 'size': 42, 'family': 'Syne'}, 'valueformat': '.2f'},
-        gauge={
-            'axis': {'range': [0.0, 1.0], 'tickcolor': "#2a2d40", 'tickfont': {'color': '#3a3d52', 'size': 10}},
-            'bar': {'color': color, 'thickness': 0.25},
-            'bgcolor': "rgba(0,0,0,0)",
-            'borderwidth': 0,
-            'steps': [
-                {'range': [0.0, 0.6],  'color': "rgba(239,68,68,0.08)"},
-                {'range': [0.6, 0.8],  'color': "rgba(251,191,36,0.08)"},
-                {'range': [0.8, 1.0],  'color': "rgba(74,222,128,0.08)"}
-            ],
-            'threshold': {
-                'line': {'color': "#6366f1", 'width': 2},
-                'thickness': 0.75,
-                'value': 0.8
-            }
-        }
-    ))
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font={'color': "white", 'family': 'DM Sans'},
-        margin=dict(l=20, r=20, t=40, b=10),
-        height=240
-    )
-    return fig
 
+# ── Routing ────────────────────────────────────────────────────────────────────
+from frontend.views.dashboard import render_dashboard
+from frontend.views.audit_engine import render_audit_engine
+from frontend.views.bias_leaderboard import render_bias_leaderboard
+from frontend.views.vision_scanner import render_vision_scanner
+from frontend.views.intersectional import render_intersectional
+from frontend.views.comparison import render_comparison
 
-# ── SHAP Waterfall Chart ───────────────────────────────────────────────────────
-def render_shap_waterfall(shap_summary: dict):
-    """
-    Renders a horizontal waterfall bar chart from shap_summary dict
-    {feature: mean_abs_shap_value} — top 5 features, sorted by impact.
-    """
-    if not shap_summary:
-        return None
-
-    items = sorted(shap_summary.items(), key=lambda x: x[1])  # ascending for bottom-up display
-    features = [i[0] for i in items]
-    values   = [i[1] for i in items]
-
-    # Color: highest bar gets red accent, rest get indigo gradient
-    colors = ["#6366f1"] * len(values)
-    colors[-1] = "#f87171"   # top driver = red warning
-    colors[-2] = "#fb923c" if len(values) > 1 else colors[-2]  # second = amber
-
-    fig = go.Figure()
-
-    # Invisible base bars (waterfall effect)
-    cumulative = [0] + list(values[:-1])
-    for i in range(len(features)):
-        c = cumulative[i] if i == 0 else sum(values[:i])
-        _ = c  # kept for clarity
-
-    # Simple horizontal bar (mean abs SHAP — the standard presentation)
-    fig.add_trace(go.Bar(
-        x=values,
-        y=features,
-        orientation='h',
-        marker=dict(
-            color=colors,
-            line=dict(width=0),
-        ),
-        text=[f"{v:.4f}" for v in values],
-        textposition='outside',
-        textfont=dict(color='#6b7280', size=11, family='DM Mono'),
-        hovertemplate='<b>%{y}</b><br>SHAP Impact: %{x:.4f}<extra></extra>',
-    ))
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#6b7280", family="DM Sans", size=12),
-        margin=dict(l=10, r=60, t=10, b=10),
-        height=260,
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="#1a1c28",
-            zeroline=True,
-            zerolinecolor="#2a2d40",
-            zerolinewidth=1,
-            showline=False,
-            tickfont=dict(color="#3a3d52", size=10, family="DM Mono"),
-            title=dict(text="Mean |SHAP| Value", font=dict(color="#3a3d52", size=11)),
-        ),
-        yaxis=dict(
-            showgrid=False,
-            showline=False,
-            tickfont=dict(color="#c8cad4", size=12, family="DM Sans"),
-        ),
-        bargap=0.35,
-        showlegend=False,
-    )
-
-    # Vertical reference line at x=0
-    fig.add_vline(x=0, line_color="#2a2d40", line_width=1)
-
-    return fig
-
-
-# ── Bias Drift Chart ───────────────────────────────────────────────────────────
-def render_bias_drift(history_data: list):
-    """
-    Renders a Plotly area+line chart of fairness_ratio over time.
-    Marks PASS/FAIL points with colored markers.
-    """
-    if not history_data:
-        return None
-
-    df = pd.DataFrame(history_data)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values("timestamp")
-
-    pass_df = df[df["fairness_ratio"] >= 0.8]
-    fail_df = df[df["fairness_ratio"] < 0.8]
-
-    fig = go.Figure()
-
-    # Shaded area under the line
-    fig.add_trace(go.Scatter(
-        x=df["timestamp"],
-        y=df["fairness_ratio"],
-        mode="lines",
-        line=dict(color="rgba(99,102,241,0)", width=0),
-        fill='tozeroy',
-        fillcolor="rgba(99,102,241,0.06)",
-        showlegend=False,
-        hoverinfo='skip',
-    ))
-
-    # Main line
-    fig.add_trace(go.Scatter(
-        x=df["timestamp"],
-        y=df["fairness_ratio"],
-        mode="lines",
-        line=dict(color="#6366f1", width=2.5, shape='spline', smoothing=0.8),
-        showlegend=False,
-        hovertemplate='<b>%{x|%Y-%m-%d %H:%M}</b><br>Fairness Ratio: <b>%{y:.3f}</b><extra></extra>',
-    ))
-
-    # PASS markers (green dots)
-    if not pass_df.empty:
-        fig.add_trace(go.Scatter(
-            x=pass_df["timestamp"],
-            y=pass_df["fairness_ratio"],
-            mode="markers",
-            name="PASS",
-            marker=dict(color="#4ade80", size=9, line=dict(color="#080910", width=2)),
-            hovertemplate='<b>PASS</b><br>%{x|%Y-%m-%d %H:%M}<br>Ratio: %{y:.3f}<extra></extra>',
-        ))
-
-    # FAIL markers (red dots)
-    if not fail_df.empty:
-        fig.add_trace(go.Scatter(
-            x=fail_df["timestamp"],
-            y=fail_df["fairness_ratio"],
-            mode="markers",
-            name="FAIL",
-            marker=dict(color="#f87171", size=9, symbol="x", line=dict(color="#080910", width=2)),
-            hovertemplate='<b>FAIL</b><br>%{x|%Y-%m-%d %H:%M}<br>Ratio: %{y:.3f}<extra></extra>',
-        ))
-
-    # EEOC threshold line
-    fig.add_hline(
-        y=0.8,
-        line_dash="dot",
-        line_color="rgba(239,68,68,0.45)",
-        line_width=1.5,
-        annotation_text="EEOC Minimum (0.80)",
-        annotation_font_color="#f87171",
-        annotation_font_size=10,
-        annotation_font_family="DM Mono",
-        annotation_position="top right",
-    )
-
-    # Compliance zone shading
-    fig.add_hrect(
-        y0=0.8, y1=1.05,
-        fillcolor="rgba(34,197,94,0.03)",
-        line_width=0,
-    )
-    fig.add_hrect(
-        y0=0, y1=0.8,
-        fillcolor="rgba(239,68,68,0.03)",
-        line_width=0,
-    )
-
-    max_y = max(1.05, df["fairness_ratio"].max() * 1.1)
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#6b7280", family="DM Sans", size=12),
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=260,
-        xaxis=dict(
-            gridcolor="#1a1c28",
-            showline=False,
-            zeroline=False,
-            tickfont=dict(color="#3a3d52", size=10, family="DM Mono"),
-        ),
-        yaxis=dict(
-            range=[0, max_y],
-            gridcolor="#1a1c28",
-            showline=False,
-            zeroline=False,
-            tickfont=dict(color="#3a3d52", size=10, family="DM Mono"),
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="right", x=1,
-            font=dict(color="#6b7280", size=11),
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        hovermode="x unified",
-    )
-
-    return fig
-
-
-# ── Helper: derive KPI values ──────────────────────────────────────────────────
-def get_kpi_values():
-    res = st.session_state.audit_result
-    if res is None:
-        return {"ratio": "—", "status": "Pending", "feature": "—", "passed": "—"}
-    return {
-        "ratio": f"{res.get('fairness_ratio', 0):.2f}",
-        "status": "PASS" if res.get("compliance_pass") else "FAIL",
-        "feature": res.get("top_biased_feature", "N/A"),
-        "passed": "Yes" if res.get("compliance_pass") else "No"
-    }
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.active_page == "Dashboard":
-
-    # Header
-    st.markdown("""
-    <div class="eq-header">
-        <div class="eq-brand">
-            <div class="eq-logo">⚖</div>
-            <div>
-                <div class="eq-brand-name">EquiGuard</div>
-                <div class="eq-brand-tag">AI Bias Firewall · EEOC Compliance Suite</div>
-            </div>
-        </div>
-        <div class="eq-status-dot">System Operational</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    kpi = get_kpi_values()
-    ratio_val = kpi["ratio"]
-    status_val = kpi["status"]
-    feature_val = kpi["feature"]
-
-    ratio_color = "green" if status_val == "PASS" else ("amber" if ratio_val == "—" else "red")
-    status_color = "green" if status_val == "PASS" else ("indigo" if status_val == "Pending" else "red")
-
-    # KPI Row
-    st.markdown(f"""
-    <div class="kpi-grid">
-        <div class="kpi-card {ratio_color}">
-            <div class="kpi-label">Fairness Ratio</div>
-            <div class="kpi-value {ratio_color}">{ratio_val}</div>
-            <div class="kpi-sub">EEOC threshold ≥ 0.80</div>
-        </div>
-        <div class="kpi-card {status_color}">
-            <div class="kpi-label">Compliance Status</div>
-            <div class="kpi-value {status_color}">{status_val}</div>
-            <div class="kpi-sub">US EEOC 4/5ths Rule</div>
-        </div>
-        <div class="kpi-card indigo">
-            <div class="kpi-label">Top Bias Driver</div>
-            <div class="kpi-value indigo" style="font-size:18px;margin-top:4px;">{feature_val}</div>
-            <div class="kpi-sub">Highest SHAP impact</div>
-        </div>
-        <div class="kpi-card amber">
-            <div class="kpi-label">Audit Engine</div>
-            <div class="kpi-value amber" style="font-size:18px;margin-top:4px;">aif360 + SHAP</div>
-            <div class="kpi-sub">IBM Fairness 360 active</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Main content
-    col1, col2 = st.columns([1, 1], gap="large")
-
-    with col1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">⬡ Fairness Gauge</div>', unsafe_allow_html=True)
-
-        fairness_ratio = 0.0
-        if st.session_state.audit_result:
-            fairness_ratio = st.session_state.audit_result.get('fairness_ratio', 0.0)
-
-        st.plotly_chart(render_fairness_gauge(fairness_ratio), use_container_width=True)
-
-        # Compliance badge
-        if st.session_state.audit_result is None:
-            st.markdown('<div style="text-align:center;"><span class="badge-pending">◌ Pending Audit</span></div>', unsafe_allow_html=True)
-        elif st.session_state.audit_result.get("compliance_pass"):
-            st.markdown('<div style="text-align:center;"><span class="badge-pass">✓ US EEOC: Compliant</span></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div style="text-align:center;"><span class="badge-fail">✗ US EEOC: Non-Compliant</span></div>', unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">◈ SHAP Feature Impact</div>', unsafe_allow_html=True)
-
-        if st.session_state.audit_result:
-            res = st.session_state.audit_result
-            shap_summary = res.get("shap_summary", {})
-
-            if shap_summary:
-                fig_shap = render_shap_waterfall(shap_summary)
-                if fig_shap:
-                    st.plotly_chart(fig_shap, use_container_width=True)
-
-                # Legend chips
-                st.markdown("""
-                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
-                    <span style="font-size:11px;font-family:'DM Mono',monospace;color:#f87171;">■ Top driver</span>
-                    <span style="font-size:11px;font-family:'DM Mono',monospace;color:#fb923c;">■ 2nd driver</span>
-                    <span style="font-size:11px;font-family:'DM Mono',monospace;color:#6366f1;">■ Other features</span>
-                    <span style="font-size:11px;font-family:'DM Mono',monospace;color:#3a3d52;margin-left:auto;">Mean |SHAP| — higher = more bias influence</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Quick stats row
-                top_feat = res.get("top_biased_feature", "N/A")
-                top_val  = shap_summary.get(top_feat, 0)
-                st.markdown(f"""
-                <div style="display:flex;gap:10px;margin-top:14px;">
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">TOP DRIVER</div>
-                        <div style="font-size:14px;color:#f87171;font-weight:500;">{top_feat}</div>
-                    </div>
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">SHAP SCORE</div>
-                        <div style="font-size:14px;color:#818cf8;font-family:'DM Mono',monospace;">{top_val:.4f}</div>
-                    </div>
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">FEATURES TRACKED</div>
-                        <div style="font-size:14px;color:#c8cad4;font-family:'DM Mono',monospace;">{len(shap_summary)}</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if st.session_state.flagged_columns:
-                    st.markdown(f"""
-                    <div style="margin-top:12px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;padding:10px 14px;">
-                        <div style="font-size:10px;color:#f87171;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">PROXY VARIABLES DETECTED</div>
-                        <div style="font-size:13px;color:#c8cad4;">{", ".join(st.session_state.flagged_columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:180px;gap:10px;">
-                    <div style="font-size:32px;opacity:0.12;">◈</div>
-                    <div style="font-size:12px;color:#3a3d52;text-align:center;font-family:'DM Mono',monospace;">SHAP data unavailable for this audit.</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:220px;gap:12px;">
-                <div style="font-size:36px;opacity:0.1;">◈</div>
-                <div style="font-size:13px;color:#3a3d52;text-align:center;font-family:'DM Mono',monospace;">No audit data yet.<br>Run an audit from the Audit Engine.</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Risk Narrative ────────────────────────────────────────────────────────
-    if st.session_state.audit_result:
-        _r  = st.session_state.audit_result
-        _cp = _r.get("compliance_pass", False)
-        _fr = _r.get("fairness_ratio", 0.0)
-        _ga = _r.get("group_a_rate", 0.0)
-        _gb = _r.get("group_b_rate", 0.0)
-        _tf = _r.get("top_biased_feature", "N/A")
-        _px = st.session_state.flagged_columns
-        _cls    = "pass" if _cp else "fail"
-        _verb   = "passes" if _cp else "fails"
-        _tcolor = "#4ade80" if _cp else "#f87171"
-        _legal  = (
-            "This model would likely survive disparate impact scrutiny under 29 CFR § 1607."
-            if _cp else
-            "This disparity constitutes potential adverse impact under 29 CFR § 1607 and may not survive regulatory scrutiny."
-        )
-        _proxy_sent = ""
-        if _px:
-            _plist = ", ".join(f'<span class="nh">{p}</span>' for p in _px)
-            _proxy_sent = f' Additionally, <span class="nh">{len(_px)}</span> proxy variable(s) — {_plist} — were detected as statistically correlated with the protected attribute and are flagged for removal.'
-        st.markdown(f"""
-        <div class="narrative-card {_cls}">
-            <div class="section-title">⚖ Legal Risk Narrative</div>
-            <div class="narrative-text">
-                <p>The submitted model <strong style="color:#f0f1f5;">{_verb}</strong> the EEOC 4/5ths (80%) adverse impact rule.
-                The privileged group achieves a selection rate of <span class="nh">{_ga*100:.1f}%</span>,
-                while the unprivileged group achieves <span class="nh">{_gb*100:.1f}%</span>.</p>
-                <p>The resulting disparate impact ratio is <span class="nh">{_fr:.4f}</span>, compared against the
-                regulatory minimum threshold of <span style="color:{_tcolor};font-family:'DM Mono',monospace;">0.80</span>.
-                {'The ratio meets or exceeds this threshold.' if _cp else 'The ratio falls <strong style="color:#f87171;">below</strong> this threshold.'}</p>
-                <p>The feature with the highest SHAP-attributed influence on model outcomes is
-                <span class="nh">{_tf}</span>, indicating it is the primary statistical driver of model decisions.{_proxy_sent}</p>
-                <p style="margin-top:12px;padding:10px 14px;background:rgba({'34,197,94' if _cp else '239,68,68'},0.07);border-radius:8px;border-left:3px solid {'#22c55e' if _cp else '#ef4444'};">
-                {_legal}</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── Bias Drift Chart (full width below) ─────────────────────────────────
-
-    st.markdown('<div class="section-card" style="margin-top:0;">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">◉ Bias Drift Over Time</div>', unsafe_allow_html=True)
-
-    try:
-        history_response = api_get("/audit/history")
-        if history_response.status_code == 200:
-            history_data = history_response.json().get("history", [])
-            if history_data:
-                fig_drift = render_bias_drift(history_data)
-                if fig_drift:
-                    st.plotly_chart(fig_drift, use_container_width=True)
-
-                # Summary row below chart
-                df_h = pd.DataFrame(history_data)
-                total   = len(df_h)
-                passing = int((pd.to_numeric(df_h["fairness_ratio"], errors="coerce") >= 0.8).sum())
-                avg_r   = pd.to_numeric(df_h["fairness_ratio"], errors="coerce").mean()
-                latest  = pd.to_numeric(df_h["fairness_ratio"], errors="coerce").iloc[-1] if total > 0 else 0
-                trend_icon = "↑" if total > 1 and pd.to_numeric(df_h["fairness_ratio"], errors="coerce").iloc[-1] > pd.to_numeric(df_h["fairness_ratio"], errors="coerce").iloc[-2] else "↓"
-                trend_color = "#4ade80" if trend_icon == "↑" else "#f87171"
-
-                st.markdown(f"""
-                <div style="display:flex;gap:10px;margin-top:12px;">
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;text-align:center;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">TOTAL AUDITS</div>
-                        <div style="font-size:18px;color:#818cf8;font-family:'Syne',sans-serif;font-weight:700;">{total}</div>
-                    </div>
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;text-align:center;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">PASSING</div>
-                        <div style="font-size:18px;color:#4ade80;font-family:'Syne',sans-serif;font-weight:700;">{passing}/{total}</div>
-                    </div>
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;text-align:center;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">AVG RATIO</div>
-                        <div style="font-size:18px;color:#c8cad4;font-family:'Syne',sans-serif;font-weight:700;">{avg_r:.3f}</div>
-                    </div>
-                    <div style="flex:1;background:#12141f;border:1px solid #1e2030;border-radius:10px;padding:10px 14px;text-align:center;">
-                        <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1px;margin-bottom:4px;">TREND</div>
-                        <div style="font-size:18px;font-family:'Syne',sans-serif;font-weight:700;color:{trend_color};">{trend_icon} {latest:.3f}</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:160px;gap:10px;">
-                    <div style="font-size:32px;opacity:0.1;">◉</div>
-                    <div style="font-size:12px;color:#3a3d52;font-family:'DM Mono',monospace;text-align:center;">No audit history yet.<br>Run a compliance audit to see drift.</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.error("Could not fetch audit history from backend.")
-    except Exception as e:
-        st.markdown(f"""
-        <div style="padding:1rem;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;font-size:13px;color:#f87171;font-family:'DM Mono',monospace;">
-            Backend unreachable — start the FastAPI server to see live drift data.
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-    # ── Conversational Audit Agent ─────────────────────────────────────────────
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">🤖 EquiGuard Audit Agent</div>', unsafe_allow_html=True)
-
-    _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-
-    if not _gemini_key:
-        st.markdown("""
-        <div class="info-chip">◌ Set <span style="color:#f0f1f5;">GEMINI_API_KEY</span> in your .env to activate the Audit Agent.</div>
-        """, unsafe_allow_html=True)
-    elif st.session_state.audit_result is None:
-        st.markdown("""
-        <div style="text-align:center;padding:2rem;font-size:13px;color:#3a3d52;font-family:'DM Mono',monospace;">
-            Run a compliance audit first — the agent reads your live audit results.
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-bottom:1rem;">
-            Ask anything about this audit in plain English.
-        </div>
-        """, unsafe_allow_html=True)
-
-        for _msg in st.session_state.chat_history:
-            with st.chat_message(_msg["role"]):
-                st.markdown(_msg["content"])
-
-        if _user_input := st.chat_input("e.g. Why did we fail the EEOC check?", key="agent_input"):
-            st.session_state.chat_history.append({"role": "user", "content": _user_input})
-            with st.chat_message("user"):
-                st.markdown(_user_input)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking…"):
-                    try:
-                        from google import genai as _genai
-                        from google.genai import types as _gtypes
-
-                        _client = _genai.Client(api_key=_gemini_key)
-
-                        _res  = st.session_state.audit_result
-                        _prox = st.session_state.flagged_columns or []
-                        _sys  = (
-                            "You are the EquiGuard Audit Agent — an AI expert in EEOC compliance "
-                            "and algorithmic bias detection embedded inside the EquiGuard platform.\n\n"
-                            "The following JSON contains the live audit results for the model under review:\n\n"
-                            f"{json.dumps(_res, indent=2)}\n\n"
-                            f"Flagged proxy variables: {_prox if _prox else 'None detected'}\n\n"
-                            "Key definitions:\n"
-                            "- fairness_ratio: EEOC 4/5ths disparate impact ratio (must be >= 0.80 to pass)\n"
-                            "- group_a_rate: privileged group selection rate\n"
-                            "- group_b_rate: unprivileged group selection rate\n"
-                            "- shap_summary: mean |SHAP| per feature (higher = more influential)\n"
-                            "- compliance_pass: True = model passed the EEOC 4/5ths rule\n\n"
-                            "Answer in plain English suitable for a business executive or legal team. "
-                            "Be concise, cite specific numbers from the audit data, "
-                            "and never fabricate values not present in the JSON."
-                        )
-
-                        # Build typed history for the new SDK
-                        _gemini_hist = []
-                        for _m in st.session_state.chat_history[:-1]:
-                            _role = "model" if _m["role"] == "assistant" else "user"
-                            _gemini_hist.append(
-                                _gtypes.Content(
-                                    role=_role,
-                                    parts=[_gtypes.Part(text=_m["content"])],
-                                )
-                            )
-
-                        _chat_session = _client.chats.create(
-                            model="gemini-2.5-flash",
-                            config=_gtypes.GenerateContentConfig(
-                                system_instruction=_sys,
-                            ),
-                            history=_gemini_hist,
-                        )
-                        _reply = _chat_session.send_message(_user_input).text
-
-                        st.markdown(_reply)
-                        st.session_state.chat_history.append({"role": "assistant", "content": _reply})
-
-                    except Exception as _e:
-                        _err = f"Agent error: {_e}"
-                        st.error(_err)
-                        st.session_state.chat_history.append({"role": "assistant", "content": _err})
-
-        if st.session_state.chat_history:
-            if st.button("✕  Clear conversation", key="btn_clear_chat"):
-                st.session_state.chat_history = []
-                st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: AUDIT ENGINE
-# ══════════════════════════════════════════════════════════════════════════════
+    render_dashboard()
 elif st.session_state.active_page == "Audit Engine":
-
-    st.markdown("""
-    <div class="eq-header">
-        <div>
-            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f0f1f5;">Audit Engine</div>
-            <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:2px;">Upload data · Select columns · Run compliance checks</div>
-        </div>
-        <div class="eq-status-dot">EEOC Engine Active</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns([1, 1], gap="large")
-
-    with col1:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">◈ Data Configuration</div>', unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader("Upload Dataset (CSV)", type=["csv"], label_visibility="collapsed")
-
-        if uploaded_file is not None:
-            df = pd.read_csv(uploaded_file, sep=None, engine='python')
-            df.to_csv("uploaded_data.csv", index=False)
-            st.session_state.data_path = "uploaded_data.csv"
-            columns = df.columns.tolist()
-            st.markdown(f"""
-            <div class="info-chip">✓ {uploaded_file.name} · {len(df):,} rows · {len(columns)} columns</div>
-            """, unsafe_allow_html=True)
-            st.session_state.target_col = st.selectbox("Target Column", columns, key="target_sel")
-            st.session_state.protected_col = st.selectbox("Protected Attribute", columns, key="protected_sel")
-        else:
-            st.markdown("""
-            <div class="info-chip">◌ Using default: golden_demo_dataset.csv</div>
-            """, unsafe_allow_html=True)
-            st.session_state.data_path = "golden_demo_dataset.csv"
-            st.session_state.target_col = "loan_approved"
-            st.session_state.protected_col = "race"
-            st.markdown("""
-            <div style="font-size:12px;color:#3a3d52;margin-top:8px;">
-                Target: <span style="color:#818cf8;font-family:'DM Mono',monospace;">loan_approved</span> &nbsp;·&nbsp;
-                Protected: <span style="color:#818cf8;font-family:'DM Mono',monospace;">race</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="section-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">⬡ Run Audits</div>', unsafe_allow_html=True)
-
-        api_payload = {
-            "data_path": st.session_state.data_path,
-            "target_col": st.session_state.target_col,
-            "protected_col": st.session_state.protected_col
-        }
-
-        if st.button("⬡  Run Pre-Processing Audit", key="btn_preprocess"):
-            with st.spinner("Scanning for proxy variables..."):
-                try:
-                    response = api_post("/audit/preprocess", api_payload)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data.get("proxies_detected"):
-                            flagged_cols = data.get("flagged_columns", [])
-                            st.session_state.flagged_columns = flagged_cols
-                            st.warning(f"⚠ Proxy variables detected: {', '.join(flagged_cols)}")
-                        else:
-                            st.session_state.flagged_columns = []
-                            st.success("✓ No hidden proxy variables detected.")
-                    else:
-                        st.error(f"Audit failed: {response.status_code}")
-                except Exception as e:
-                    st.error(f"Cannot reach backend: {e}")
-
-        if st.button("◉  Run Full Compliance Audit", key="btn_compliance"):
-            with st.spinner("Running EEOC compliance audit..."):
-                try:
-                    response = api_post("/audit/compliance", api_payload)
-                    if response.status_code == 200:
-                        st.session_state.audit_result = response.json()
-                        # Reset cached PDFs so they are regenerated for the new audit
-                        st.session_state.report_bytes = None
-                        st.session_state.cert_bytes = None
-                        st.session_state.sim_result = None
-                        st.session_state.pkg_bytes = None
-                        st.success("✓ Audit complete.")
-                        st.rerun()
-                    else:
-                        st.error(f"Audit failed: {response.status_code}")
-                except Exception as e:
-                    st.error(f"Cannot reach backend: {e}")
-
-        if st.button("⟳  Apply Mitigation & Retrain", key="btn_mitigate"):
-            with st.spinner("Retraining model with bias mitigation..."):
-                try:
-                    mitigation_payload = api_payload.copy()
-                    mitigation_payload["flagged_columns"] = st.session_state.flagged_columns
-                    response = api_post("/audit/mitigate", mitigation_payload)
-                    if response.status_code == 200:
-                        st.session_state.audit_result = response.json()
-                        # Reset cached PDFs so they are regenerated for the new result
-                        st.session_state.report_bytes = None
-                        st.session_state.cert_bytes = None
-                        st.success("✓ Mitigation applied. Model retrained.")
-                        st.rerun()
-                    else:
-                        st.error(f"Mitigation failed: {response.status_code}")
-                except Exception as e:
-                    st.error(f"Cannot reach backend: {e}")
-
-        st.markdown("<div style='margin-top:1rem;'>", unsafe_allow_html=True)
-        if st.session_state.audit_result:
-
-            # ── Fetch Executive Report PDF exactly once, cache in session_state ──
-            if st.session_state.report_bytes is None:
-                try:
-                    export_payload = st.session_state.audit_result.copy()
-                    export_payload["flagged_proxies"] = st.session_state.flagged_columns
-                    pdf_response = api_post("/audit/export", export_payload)
-                    if pdf_response.status_code == 200:
-                        st.session_state.report_bytes = pdf_response.content
-                except Exception:
-                    pass  # stays None — button will render disabled
-
-            if st.session_state.report_bytes:
-                st.download_button(
-                    label="↓  Export Executive Report (PDF)",
-                    data=st.session_state.report_bytes,
-                    file_name="EquiGuard_Executive_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="dl_report",
-                )
-            else:
-                st.button("↓  Export Executive Report (PDF)", disabled=True,
-                          use_container_width=True, key="dl_report_disabled")
-
-            # ── Compliance Certificate (only shown on PASS) ──────────────────
-            if st.session_state.audit_result.get("compliance_pass"):
-
-                # Fetch certificate PDF exactly once, cache in session_state
-                if st.session_state.cert_bytes is None:
-                    try:
-                        cert_payload = st.session_state.audit_result.copy()
-                        cert_response = api_post("/audit/certificate", cert_payload)
-                        if cert_response.status_code == 200:
-                            st.session_state.cert_bytes = cert_response.content
-                        else:
-                            st.warning(
-                                f"Certificate generation failed (HTTP {cert_response.status_code}): "
-                                f"{cert_response.text[:200]}"
-                            )
-                    except Exception as e:
-                        st.error(f"Certificate request error: {e}")
-
-                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
-                if st.session_state.cert_bytes:
-                    st.download_button(
-                        label="⬡  Download EEOC Compliance Certificate",
-                        data=st.session_state.cert_bytes,
-                        file_name="EquiGuard_EEOC_Certificate.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        help="One-page compliance certificate — issue to auditors or executives.",
-                        key="dl_cert",
-                    )
-                else:
-                    st.button("⬡  Download EEOC Compliance Certificate",
-                              disabled=True, use_container_width=True, key="dl_cert_disabled")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-                # ── Regulatory Package ZIP ───────────────────────────────────
-                if st.session_state.pkg_bytes is None:
-                    try:
-                        pkg_payload = st.session_state.audit_result.copy()
-                        pkg_payload["flagged_proxies"] = st.session_state.flagged_columns
-                        pkg_resp = api_post("/audit/package", pkg_payload)
-                        if pkg_resp.status_code == 200:
-                            st.session_state.pkg_bytes = pkg_resp.content
-                    except Exception:
-                        pass
-
-                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
-                if st.session_state.pkg_bytes:
-                    st.download_button(
-                        label="↓  Download Regulatory Package (ZIP)",
-                        data=st.session_state.pkg_bytes,
-                        file_name="EquiGuard_Regulatory_Package.zip",
-                        mime="application/zip",
-                        use_container_width=True,
-                        help="Full package: executive PDF, certificate, methodology, raw JSON.",
-                        key="dl_pkg",
-                    )
-                else:
-                    st.button("↓  Download Regulatory Package (ZIP)", disabled=True,
-                              use_container_width=True, key="dl_pkg_disabled")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            else:
-                st.markdown("""
-                <div style="margin-top:8px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);
-                border-radius:10px;padding:10px 14px;font-size:12px;color:#f87171;font-family:'DM Mono',monospace;">
-                    ✗  Certificate unavailable — model did not pass EEOC audit.<br>
-                    <span style="color:#4b5280;">Apply mitigation and re-run to unlock.</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-
-        else:
-            st.button("↓  Export Executive Report (PDF)", disabled=True,
-                      help="Run a compliance audit first.", use_container_width=True,
-                      key="dl_report_none")
-            st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
-            st.button("⬡  Download EEOC Compliance Certificate", disabled=True,
-                      help="Run a compliance audit first.", use_container_width=True,
-                      key="dl_cert_none")
-            st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── What-If Simulator ─────────────────────────────────────────────────────
-    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">⬡ What-If Mitigation Simulator</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="info-chip">◌ Simulates dropping each feature individually and retraining — projects the resulting EEOC ratio and accuracy cost.</div>
-    """, unsafe_allow_html=True)
-
-    sim_payload = {
-        "data_path": st.session_state.get("data_path", "golden_demo_dataset.csv"),
-        "target_col": st.session_state.get("target_col", "loan_approved"),
-        "protected_col": st.session_state.get("protected_col", "race"),
-    }
-
-    if st.button("⬡  Simulate Mitigation Options", key="btn_simulate", use_container_width=True):
-        with st.spinner("Running simulations — this may take 30–60 seconds…"):
-            try:
-                sim_resp = api_post("/audit/simulate", sim_payload)
-                if sim_resp.status_code == 200:
-                    st.session_state.sim_result = sim_resp.json().get("simulations", [])
-                else:
-                    st.error(f"Simulation failed: {sim_resp.status_code}")
-            except Exception as e:
-                st.error(f"Cannot reach backend: {e}")
-
-    if st.session_state.sim_result:
-        sims = st.session_state.sim_result
-        best_idx = 0  # already sorted by projected_ratio desc
-
-        rows_html = ""
-        for i, s in enumerate(sims):
-            pr   = s["projected_ratio"]
-            ad   = s["accuracy_delta"]
-            rec  = s["recommendation"]
-            feat = s["feature"]
-            acc_after = s["accuracy_after"]
-
-            # Colour: ratio
-            if pr >= 0.8:
-                ratio_color = "#4ade80"
-            elif pr >= 0.6:
-                ratio_color = "#fbbf24"
-            else:
-                ratio_color = "#f87171"
-
-            # Colour: accuracy delta
-            if ad > -0.01:
-                delta_color = "#4ade80"
-            elif ad >= -0.05:
-                delta_color = "#fbbf24"
-            else:
-                delta_color = "#f87171"
-
-            delta_sign = "+" if ad >= 0 else ""
-            rec_badge = '<span class="rec-drop">✓ Drop</span>' if rec == "drop" else '<span class="rec-keep">Keep</span>'
-            row_cls = "best-row" if i == best_idx else ""
-
-            rows_html += f"""
-            <tr class="{row_cls}">
-                <td>{feat}</td>
-                <td><span style="color:{ratio_color};font-family:'DM Mono',monospace;font-weight:600;">{pr:.4f}</span></td>
-                <td><span style="color:{delta_color};font-family:'DM Mono',monospace;">{delta_sign}{ad:.4f}</span></td>
-                <td>{rec_badge}</td>
-            </tr>"""
-
-        st.markdown(f"""
-        <table class="sim-table">
-            <thead><tr>
-                <th>Feature</th>
-                <th>Drop → Projected Ratio</th>
-                <th>Accuracy Cost</th>
-                <th>Recommendation</th>
-            </tr></thead>
-            <tbody>{rows_html}</tbody>
-        </table>
-        <div style="margin-top:10px;font-size:11px;color:#3a3d52;font-family:'DM Mono',monospace;">
-            * Projections are estimates based on held-out test set retraining. Highlighted row = best single feature to drop.
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: BIAS LEADERBOARD
-# ══════════════════════════════════════════════════════════════════════════════
+    render_audit_engine()
 elif st.session_state.active_page == "Bias Leaderboard":
-
-    st.markdown("""
-    <div class="eq-header">
-        <div>
-            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f0f1f5;">Bias Leaderboard</div>
-            <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:2px;">Temporal drift tracking · Historical compliance records</div>
-        </div>
-        <div class="eq-status-dot">Live Data</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    try:
-        history_response = api_get("/audit/history")
-        if history_response.status_code == 200:
-            history_data = history_response.json().get("history", [])
-            if history_data:
-                df_history = pd.DataFrame(history_data)
-                df_history["timestamp"] = pd.to_datetime(df_history["timestamp"])
-                df_history.set_index("timestamp", inplace=True)
-
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.markdown('<div class="section-title">◉ Temporal Bias Drift</div>', unsafe_allow_html=True)
-                fig_drift = render_bias_drift(history_data)
-                if fig_drift:
-                    st.plotly_chart(fig_drift, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                # Table
-                st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                st.markdown('<div class="section-title">◈ Audit History</div>', unsafe_allow_html=True)
-                for i, (ts, row) in enumerate(df_history.iterrows()):
-                    ratio = row.get('fairness_ratio', 0)
-                    passed = ratio >= 0.8
-                    badge_html = (
-                        '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>'
-                        if passed else
-                        '<span class="badge-fail" style="font-size:11px;padding:3px 10px;">FAIL</span>'
-                    )
-                    st.markdown(f"""
-                    <div class="leaderboard-row">
-                        <span class="rank-num">#{i+1}</span>
-                        <span style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;">{ts.strftime('%Y-%m-%d %H:%M')}</span>
-                        <span style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;">{ratio:.4f}</span>
-                        {badge_html}
-                    </div>
-                    """, unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-                # ── Mitigation Impact Comparison ──────────────────────────────
-                if len(history_data) >= 2:
-                    _before = history_data[-2]
-                    _after  = history_data[-1]
-                    _br = _before.get("fairness_ratio", 0.0)
-                    _ar = _after.get("fairness_ratio", 0.0)
-                    _delta = _ar - _br
-                    _delta_color = "#4ade80" if _delta >= 0 else "#f87171"
-                    _delta_sign  = "+" if _delta >= 0 else ""
-                    _bpass = _before.get("compliance_pass", False)
-                    _apass = _after.get("compliance_pass", False)
-                    _bbadge = '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>' if _bpass else '<span class="badge-fail" style="font-size:11px;padding:3px 10px;">FAIL</span>'
-                    _abadge = '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>' if _apass else '<span class="badge-fail" style="font-size:11px;padding:3px 10px;">FAIL</span>'
-                    _net_word = "improved" if _delta >= 0 else "worsened"
-                    _net_color = "#4ade80" if _delta >= 0 else "#f87171"
-
-                    st.markdown('<div class="section-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="section-title">⟳ Mitigation Impact</div>', unsafe_allow_html=True)
-                    st.markdown(f"""
-                    <div class="compare-grid">
-                        <div class="compare-side">
-                            <div class="compare-label">Before Mitigation</div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">Fairness Ratio</div>
-                                <div class="compare-metric-value">{_br:.4f}</div>
-                            </div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">EEOC Status</div>
-                                <div style="margin-top:4px;">{_bbadge}</div>
-                            </div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">Top Feature</div>
-                                <div style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;margin-top:4px;">{_before.get('top_feature','—')}</div>
-                            </div>
-                        </div>
-                        <div class="compare-side">
-                            <div class="compare-label">After Mitigation</div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">Fairness Ratio</div>
-                                <div class="compare-metric-value" style="color:{_delta_color};">
-                                    {_ar:.4f}
-                                    <span style="font-size:14px;font-family:'DM Mono',monospace;margin-left:8px;">
-                                        {_delta_sign}{_delta:.4f} {'↑' if _delta >= 0 else '↓'}
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">EEOC Status</div>
-                                <div style="margin-top:4px;">{_abadge}</div>
-                            </div>
-                            <div class="compare-metric">
-                                <div class="compare-metric-label">Top Feature</div>
-                                <div style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;margin-top:4px;">{_after.get('top_feature','—')}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top:14px;padding:10px 14px;background:#0a0b10;border-radius:10px;border:1px solid #1a1c28;font-size:13px;color:#c8cad4;">
-                        Net result: Fairness ratio <strong style="color:{_net_color};">{_net_word} by {_delta_sign}{_delta:.4f}</strong> after proxy removal.
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-            else:
-                st.markdown("""
-                <div class="section-card" style="text-align:center;padding:3rem;">
-                    <div style="font-size:48px;opacity:0.1;margin-bottom:1rem;">◉</div>
-                    <div style="font-size:14px;color:#3a3d52;font-family:'DM Mono',monospace;">No audit history yet.<br>Run a compliance audit to populate the leaderboard.</div>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.error("Failed to fetch audit history from backend.")
-    except Exception as e:
-        st.error(f"Could not connect to backend: {e}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: INTERSECTIONAL
-# ══════════════════════════════════════════════════════════════════════════════
+    render_bias_leaderboard()
+elif st.session_state.active_page == "Model Comparison":
+    render_comparison()
+elif st.session_state.active_page == "Vision Scanner":
+    render_vision_scanner()
 elif st.session_state.active_page == "Intersectional":
-
-    st.markdown("""
-    <div class="eq-header">
-        <div>
-            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f0f1f5;">Intersectional Audit</div>
-            <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:2px;">
-                A model can pass for one group while failing another. This view audits all detected demographic attributes simultaneously.
-            </div>
-        </div>
-        <div class="eq-status-dot">Multi-Attribute</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    ix_payload = {
-        "data_path": st.session_state.get("data_path", "golden_demo_dataset.csv"),
-        "target_col": st.session_state.get("target_col", "loan_approved"),
-    }
-
-    if st.button("⬢  Run Intersectional Audit", key="btn_ix", use_container_width=False):
-        with st.spinner("Scanning all protected attributes…"):
-            try:
-                ix_resp = api_post("/audit/intersectional", ix_payload)
-                if ix_resp.status_code == 200:
-                    st.session_state.intersectional_result = ix_resp.json()
-                    st.session_state.ix_summary = None  # Reset AI summary for new audit
-                else:
-                    st.error(f"Intersectional audit failed: {ix_resp.status_code}")
-            except Exception as e:
-                st.error(f"Cannot reach backend: {e}")
-
-    ix = st.session_state.intersectional_result
-    if ix:
-        prot_cols = ix.get("protected_columns", [])
-        ratios    = ix.get("ratios", {})
-        corrs     = ix.get("correlations", {})
-
-        # ── Compliance badge row ─────────────────────────────────────────────
-        if prot_cols:
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">◈ Compliance Status per Attribute</div>', unsafe_allow_html=True)
-            badges_html = ""
-            for col in prot_cols:
-                r = ratios.get(col)
-                if r is None:
-                    badge_color = "#6b7280"; badge_text = "N/A"
-                elif r >= 0.8:
-                    badge_color = "#4ade80"; badge_text = "PASS"
-                else:
-                    badge_color = "#f87171"; badge_text = "FAIL"
-                badges_html += f"""
-                <div class="ix-badge">
-                    <div class="ix-badge-label">{col}</div>
-                    <div class="ix-badge-val" style="color:{badge_color};">{badge_text}</div>
-                    <div style="font-size:11px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:4px;">{f'{r:.4f}' if r is not None else '—'}</div>
-                </div>"""
-            st.markdown(f'<div style="display:flex;flex-wrap:wrap;margin-top:8px;">{badges_html}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── Correlation heatmap ──────────────────────────────────────────────
-        if prot_cols and corrs:
-            features = list(corrs.keys())
-            z_matrix = [[corrs[f].get(c, 0.0) for c in prot_cols] for f in features]
-
-            fig_ix = go.Figure(go.Heatmap(
-                z=z_matrix,
-                x=prot_cols,
-                y=features,
-                colorscale=[
-                    [0.0,  "#0d0e14"],
-                    [0.15, "#1a1c40"],
-                    [0.5,  "#6b21a8"],
-                    [1.0,  "#ef4444"],
-                ],
-                zmin=0, zmax=1,
-                hovertemplate="<b>%{y}</b> × <b>%{x}</b><br>|r| = %{z:.4f}<extra></extra>",
-                colorbar=dict(
-                    title=dict(
-                        text="| Pearson r |",
-                        font=dict(color="#6b7280", size=10, family="DM Mono"),
-                    ),
-                    tickfont=dict(color="#6b7280", size=10, family="DM Mono"),
-                ),
-
-            ))
-            # Threshold annotation line
-            fig_ix.add_shape(
-                type="line", x0=-0.5, x1=len(prot_cols)-0.5,
-                y0=-0.5, y1=-0.5,
-                line=dict(color="rgba(0,0,0,0)", width=0),
-            )
-            fig_ix.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#6b7280", family="DM Sans", size=12),
-                margin=dict(l=10, r=10, t=30, b=10),
-                height=max(260, len(features) * 36),
-                xaxis=dict(side="top", tickfont=dict(color="#c8cad4", size=12)),
-                yaxis=dict(tickfont=dict(color="#c8cad4", size=11), autorange="reversed"),
-            )
-
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">⬢ Feature × Protected Attribute Correlation</div>', unsafe_allow_html=True)
-            st.markdown("""
-            <div class="info-chip">◌ Cells above 0.15 (proxy hunter threshold) indicate potential proxy bias. Cells above 0.5 indicate high correlation risk.</div>
-            """, unsafe_allow_html=True)
-            st.plotly_chart(fig_ix, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ── AI Correlation Summary ──────────────────────────────────────────
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">✨ AI Correlation Summary</div>', unsafe_allow_html=True)
-            
-            _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-            if not _gemini_key:
-                st.markdown('<div class="info-chip">◌ Set <span style="color:#f0f1f5;">GEMINI_API_KEY</span> in your .env to enable AI summaries.</div>', unsafe_allow_html=True)
-            else:
-                if st.session_state.ix_summary:
-                    st.markdown(f'<div style="font-size:13px;color:#c8cad4;font-family:\'DM Sans\',sans-serif;line-height:1.6;">{st.session_state.ix_summary}</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                    <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-bottom:1rem;">
-                        Analyze the correlation matrix above for hidden proxy variables using Gemini.
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button("✨ Generate AI Summary", key="btn_ix_summary"):
-                        with st.spinner("Analyzing correlation matrix..."):
-                            try:
-                                from google import genai as _genai
-                                from google.genai import types as _gtypes
-                                _client = _genai.Client(api_key=_gemini_key)
-                                
-                                _sys_prompt = (
-                                    "You are an AI bias detection expert conducting a detailed intersectional audit. "
-                                    "Analyze the following Pearson correlation matrix between dataset features and protected demographic attributes.\n\n"
-                                    "Correlation Matrix JSON:\n" + json.dumps(corrs, indent=2) + "\n\n"
-                                    "Please provide a comprehensive, multi-paragraph analysis with the following structure:\n"
-                                    "1. **High-Risk Proxies (|r| > 0.5):** Detail any features strongly correlated with protected attributes. Explain why this poses a severe legal or ethical risk.\n"
-                                    "2. **Moderate-Risk Proxies (0.15 < |r| <= 0.5):** List features showing moderate correlation. Provide a brief hypothesis on how these variables might unintentionally encode demographic data.\n"
-                                    "3. **Safe Features (|r| <= 0.15):** Briefly summarize which features appear statistically independent of protected attributes.\n"
-                                    "4. **Actionable Recommendations:** Suggest 2-3 specific mitigation strategies for the data science team (e.g., feature dropping, orthogonalization, or re-weighting).\n\n"
-                                    "Ensure the tone is professional and objective. Use Markdown formatting (bolding, bullet points) to make the report highly readable. "
-                                    "If no features cross a threshold, explicitly state that."
-                                )
-                                
-                                _chat = _client.chats.create(
-                                    model="gemini-2.5-flash",
-                                    config=_gtypes.GenerateContentConfig(system_instruction=_sys_prompt)
-                                )
-                                _reply = _chat.send_message("Please summarize the proxy risks in this correlation table.").text
-                                
-                                st.session_state.ix_summary = _reply
-                                st.rerun()
-                            except Exception as _e:
-                                st.error(f"Failed to generate summary: {_e}")
-            st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="section-card" style="text-align:center;padding:3rem;">
-            <div style="font-size:48px;opacity:0.08;margin-bottom:1rem;">⬢</div>
-            <div style="font-size:14px;color:#3a3d52;font-family:'DM Mono',monospace;">
-                Click "Run Intersectional Audit" to scan all detected demographic attributes simultaneously.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    render_intersectional()
+elif st.session_state.active_page == "Vision Scanner":
+    render_vision_scanner()
+elif st.session_state.active_page == "Intersectional":
+    render_intersectional()

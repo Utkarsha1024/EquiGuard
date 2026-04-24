@@ -7,7 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import Pipeline
 
-def run_model(data_path: str = "golden_demo_dataset.csv", target_col: str = "loan_approved", protected_col: str = "race"):
+def run_model(data_path: str = "data/golden_demo_dataset.csv", target_col: str = "loan_approved", protected_col: str = "race"):
     # Load dataset
     df = pd.read_csv(data_path)
     
@@ -18,7 +18,7 @@ def run_model(data_path: str = "golden_demo_dataset.csv", target_col: str = "loa
     df[target_col] = LabelEncoder().fit_transform(df[target_col])
     
     # Protected Binarization: Ensure discrete groups for EEOC math
-    if np.issubdtype(df[protected_col].dtype, np.number):
+    if pd.api.types.is_numeric_dtype(df[protected_col]):
         if len(df[protected_col].unique()) > 2:
             median_val = df[protected_col].median()
             df[protected_col] = (df[protected_col] >= median_val).astype(int)

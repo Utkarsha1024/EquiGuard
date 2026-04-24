@@ -22,9 +22,9 @@ def generate():
     # Drop missing values
     df = df.dropna()
     
-    # Save to root directory
-    df.to_csv("golden_demo_dataset.csv", index=False)
-    print("Successfully generated golden_demo_dataset.csv")
+    # Save to data directory
+    df.to_csv("data/golden_demo_dataset.csv", index=False)
+    print("Successfully generated data/golden_demo_dataset.csv")
 
 if __name__ == "__main__":
     generate()

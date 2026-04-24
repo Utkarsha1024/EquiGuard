@@ -2,7 +2,14 @@ import sqlite3
 import datetime
 import os
 
-DB_PATH = "equiguard.db"
+# In Docker the db_data volume is mounted at /app/data.
+# Use DATABASE_PATH env var so it's configurable; default to /app/data for
+# Docker and fall back to the project root for local dev.
+_default_db = os.path.join(
+    os.getenv("DATA_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "equiguard.db",
+)
+DB_PATH = os.getenv("DATABASE_PATH", _default_db)
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)

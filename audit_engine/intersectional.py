@@ -40,9 +40,9 @@ def run_intersectional_audit(data_path: str, target_col: str) -> dict:
         n_unique = df[col].nunique(dropna=True)
         if n_unique < 2 or n_unique > 10:
             continue
-        if df[col].dtype == "object" or df[col].dtype.name == "category":
+        if df[col].dtype == "object" or df[col].dtype.name == "category" or pd.api.types.is_string_dtype(df[col]):
             protected_candidates.append(col)
-        elif np.issubdtype(df[col].dtype, np.integer):
+        elif pd.api.types.is_integer_dtype(df[col]):
             protected_candidates.append(col)
 
     if not protected_candidates:
@@ -79,7 +79,7 @@ def run_intersectional_audit(data_path: str, target_col: str) -> dict:
         for prot_col in protected_candidates:
             try:
                 prot_series = df[prot_col]
-                if prot_series.dtype == "object" or prot_series.dtype.name == "category":
+                if prot_series.dtype == "object" or prot_series.dtype.name == "category" or pd.api.types.is_string_dtype(prot_series):
                     prot_numeric = prot_series.astype("category").cat.codes.astype(float)
                 else:
                     prot_numeric = prot_series.astype(float)

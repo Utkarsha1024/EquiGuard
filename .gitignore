@@ -5,3 +5,12 @@ __pycache__/
 uploaded_data.csv
 *.db
 equiguard.db
+
+# ── Secrets — never commit GCP credentials or API key files ──────────────────
+config/gcp-key.json
+config/gcp-credentials.json
+gcp-key.json
+gcp-credentials.json
+*-credentials.json
+*-key.json
+config/*.json

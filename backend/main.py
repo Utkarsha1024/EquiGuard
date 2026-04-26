@@ -4,12 +4,6 @@ import sys
 # Add the project root to sys.path to resolve 'audit_engine' and 'database' imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Set GCP credentials from env var if not already set.
-# Configure GOOGLE_APPLICATION_CREDENTIALS in your .env file.
-_gcp_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
-if _gcp_creds:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _gcp_creds
-
 from fastapi import FastAPI
 from backend.config import get_settings
 from backend.routers import health, audit, google_ai

@@ -33,8 +33,15 @@ def run_audit(model, X_test, predictions, protected_attributes):
 
     # ── 2. aif360 — try to use it; fall back gracefully ──────────────────────────
     try:
-        from aif360.datasets import BinaryLabelDataset
-        from aif360.metrics import ClassificationMetric
+        import logging
+        root_logger = logging.getLogger()
+        old_level = root_logger.level
+        root_logger.setLevel(logging.ERROR)
+        try:
+            from aif360.datasets import BinaryLabelDataset
+            from aif360.metrics import ClassificationMetric
+        finally:
+            root_logger.setLevel(old_level)
 
         df_aif = pd.DataFrame({
             'protected': protected_attributes,

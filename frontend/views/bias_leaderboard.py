@@ -1,4 +1,5 @@
 import os
+import math
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -26,7 +27,10 @@ def render_bias_leaderboard():
             history_data = history_response.json().get("history", [])
             if history_data:
                 df_history = pd.DataFrame(history_data)
-                df_history["timestamp"] = pd.to_datetime(df_history["timestamp"])
+                dt_series = pd.to_datetime(df_history["timestamp"])
+                if dt_series.dt.tz is None:
+                    dt_series = dt_series.dt.tz_localize('UTC')
+                df_history["timestamp"] = dt_series.dt.tz_convert('Asia/Kolkata')
                 df_history.set_index("timestamp", inplace=True)
 
                 st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -43,9 +47,28 @@ def render_bias_leaderboard():
                 df_history_desc = df_history.iloc[::-1]
                 total_audits = len(df_history_desc)
                 
-                for i, (ts, row) in enumerate(df_history_desc.iterrows()):
+                if "history_page" not in st.session_state:
+                    st.session_state.history_page = 1
+                
+                items_per_page = 10
+                total_pages = math.ceil(total_audits / items_per_page) if total_audits > 0 else 1
+                
+                # Ensure page bounds
+                if st.session_state.history_page > total_pages:
+                    st.session_state.history_page = total_pages
+                if st.session_state.history_page < 1:
+                    st.session_state.history_page = 1
+                
+                page = st.session_state.history_page
+                start_idx = (page - 1) * items_per_page
+                end_idx = start_idx + items_per_page
+                df_page = df_history_desc.iloc[start_idx:end_idx]
+                
+                for i, (ts, row) in enumerate(df_page.iterrows()):
+                    absolute_index = start_idx + i
                     ratio = row.get('fairness_ratio', 0)
                     passed = ratio >= 0.8
+                    file_name = row.get('file_name', 'golden_demo_dataset.csv')
                     badge_html = (
                         '<span class="badge-pass" style="font-size:11px;padding:3px 10px;">PASS</span>'
                         if passed else
@@ -53,12 +76,96 @@ def render_bias_leaderboard():
                     )
                     st.markdown(f"""
                     <div class="leaderboard-row">
-                        <span class="rank-num">#{total_audits - i}</span>
+                        <span class="rank-num">#{total_audits - absolute_index}</span>
                         <span style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;">{ts.strftime('%Y-%m-%d %H:%M')}</span>
+                        <span class="history-filename" title="{file_name}">{file_name}</span>
                         <span style="font-size:13px;color:#818cf8;font-family:'DM Mono',monospace;">{ratio:.4f}</span>
                         {badge_html}
                     </div>
                     """, unsafe_allow_html=True)
+                
+                # Pagination controls
+                if total_pages > 1:
+                    st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
+                    
+                    # Globally hide primary buttons on this page
+                    st.markdown('<style>div[data-testid="stButton"] > button[kind="primary"] { display: none !important; }</style>', unsafe_allow_html=True)
+                    
+                    col_prev, col_page, col_next = st.columns([1, 2, 1])
+                    
+                    with col_prev:
+                        if page > 1:
+                            st.markdown(f"""
+                            <div class="uv-nav-btn prev" id="uv-prev-btn">
+                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
+                                <span class="uv-nav-text">Previous</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if st.button("HiddenPrev", type="primary", key="btn_prev_history"):
+                                st.session_state.history_page -= 1
+                                st.rerun()
+                        else:
+                            st.markdown(f"""
+                            <div class="uv-nav-btn prev" style="opacity:0.3; cursor:not-allowed; border-color:#1e2030; background-color:#1e2030; box-shadow:none;">
+                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
+                                <span class="uv-nav-text" style="color:#6b7280;">Previous</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                    with col_page:
+                        st.markdown(f"<div style='text-align:center;color:#4b5280;font-size:12px;padding-top:10px;font-family:\"DM Mono\",monospace;'>Page {page} of {total_pages}</div>", unsafe_allow_html=True)
+                        
+                    with col_next:
+                        if page < total_pages:
+                            st.markdown(f"""
+                            <div class="uv-nav-btn next" id="uv-next-btn" style="flex-direction:row-reverse; justify-content:flex-end;">
+                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
+                                <span class="uv-nav-text">Next</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if st.button("HiddenNext", type="primary", key="btn_next_history"):
+                                st.session_state.history_page += 1
+                                st.rerun()
+                        else:
+                            st.markdown(f"""
+                            <div class="uv-nav-btn next" style="flex-direction:row-reverse; justify-content:flex-end; opacity:0.3; cursor:not-allowed; border-color:#1e2030; background-color:#1e2030; box-shadow:none;">
+                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
+                                <span class="uv-nav-text" style="color:#6b7280;">Next</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                    # Inject JS bridge
+                    js = """
+                    <script>
+                    (function() {
+                        try {
+                            var doc = window.parent.document;
+                            var prevBtn = doc.getElementById('uv-prev-btn');
+                            if (prevBtn && !prevBtn.dataset.attached) {
+                                prevBtn.addEventListener('click', function() {
+                                    var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
+                                    var target = triggers.find(b => b.innerText.includes('HiddenPrev'));
+                                    if (target) target.click();
+                                });
+                                prevBtn.dataset.attached = 'true';
+                            }
+                            
+                            var nextBtn = doc.getElementById('uv-next-btn');
+                            if (nextBtn && !nextBtn.dataset.attached) {
+                                nextBtn.addEventListener('click', function() {
+                                    var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
+                                    var target = triggers.find(b => b.innerText.includes('HiddenNext'));
+                                    if (target) target.click();
+                                });
+                                nextBtn.dataset.attached = 'true';
+                            }
+                        } catch(e) {}
+                    })();
+                    </script>
+                    """
+                    import streamlit.components.v1 as components
+                    components.html(js, height=0)
+                            
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 # ── Mitigation Impact Comparison ──────────────────────────────

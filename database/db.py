@@ -20,20 +20,25 @@ def init_db():
             timestamp DATETIME,
             fairness_ratio REAL,
             compliance_pass BOOLEAN,
-            top_feature TEXT
+            top_feature TEXT,
+            file_name TEXT DEFAULT 'golden_demo_dataset.csv'
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE audit_history ADD COLUMN file_name TEXT DEFAULT 'golden_demo_dataset.csv'")
+    except sqlite3.OperationalError:
+        pass # Column already exists
     conn.commit()
     conn.close()
 
-def log_audit_run(fairness_ratio: float, compliance_pass: bool, top_feature: str):
+def log_audit_run(fairness_ratio: float, compliance_pass: bool, top_feature: str, file_name: str = "golden_demo_dataset.csv"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     timestamp = datetime.datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO audit_history (timestamp, fairness_ratio, compliance_pass, top_feature)
-        VALUES (?, ?, ?, ?)
-    ''', (timestamp, fairness_ratio, compliance_pass, top_feature))
+        INSERT INTO audit_history (timestamp, fairness_ratio, compliance_pass, top_feature, file_name)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (timestamp, fairness_ratio, compliance_pass, top_feature, file_name))
     conn.commit()
     conn.close()
 
@@ -41,7 +46,7 @@ def get_audit_history():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT timestamp, fairness_ratio, compliance_pass, top_feature 
+        SELECT timestamp, fairness_ratio, compliance_pass, top_feature, file_name 
         FROM audit_history 
         ORDER BY timestamp ASC
     ''')
@@ -55,7 +60,8 @@ def get_audit_history():
             "timestamp": row[0],
             "fairness_ratio": row[1],
             "compliance_pass": bool(row[2]),
-            "top_feature": row[3]
+            "top_feature": row[3],
+            "file_name": row[4] if len(row) > 4 and row[4] else "golden_demo_dataset.csv"
         })
     return history
 

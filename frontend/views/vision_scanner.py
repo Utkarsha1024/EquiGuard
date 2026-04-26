@@ -1,6 +1,7 @@
 import os
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -16,10 +17,10 @@ def render_vision_scanner():
         <div>
             <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f0f1f5;">◎ Visual Bias Scanner</div>
             <div style="font-size:12px;color:#4b5280;font-family:'DM Mono',monospace;margin-top:2px;">
-                Powered by Google Cloud Vision AI · Detects demographic data leaks in images
+                Powered by Gemini 1.5 Flash Multimodal AI · Detects demographic data leaks in images
             </div>
         </div>
-        <div class="eq-status-dot">Vision AI Active</div>
+        <div class="eq-status-dot">Gemini Vision Active</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -32,31 +33,206 @@ def render_vision_scanner():
         <div class="info-chip">◌ Upload an image to scan for demographic data leakage (faces, ID cards, demographic text)</div>
         """, unsafe_allow_html=True)
 
-        _vis_file = st.file_uploader(
-            "Upload image", type=["jpg", "jpeg", "png", "webp"],
-            label_visibility="collapsed", key="vision_uploader"
-        )
+        if "vision_image" not in st.session_state:
+            st.session_state.vision_image = None
+        if "vision_image_name" not in st.session_state:
+            st.session_state.vision_image_name = None
+        if "vision_image_type" not in st.session_state:
+            st.session_state.vision_image_type = None
 
-        if _vis_file is not None:
-            st.image(_vis_file, width="stretch")
+        if st.session_state.vision_image is None:
+            # Uiverse UI and logic
+            st.markdown("""
+            <style>
+            .uiverse-container {
+                --transition: 350ms;
+                --folder-W: 120px;
+                --folder-H: 80px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-end;
+                padding: 10px;
+                background: linear-gradient(135deg, #6dd5ed, #2193b0);
+                border-radius: 15px;
+                box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+                height: calc(var(--folder-H) * 1.7);
+                position: relative;
+                width: 100%;
+                margin-top: 1rem;
+            }
+            .uiverse-folder {
+                position: absolute;
+                top: -20px;
+                left: calc(50% - 60px);
+                animation: float 2.5s infinite ease-in-out;
+                transition: transform var(--transition) ease;
+            }
+            .uiverse-container.is-hovered .uiverse-folder { transform: scale(1.05); }
 
-            if st.button("◎  Scan for Bias Risk", key="btn_vision_scan"):
-                with st.spinner("Scanning with Google Vision AI..."):
-                    try:
-                        _vis_files   = {"file": (_vis_file.name, _vis_file.getvalue(), _vis_file.type)}
-                        _vis_headers = {"X-API-Key": os.getenv("EQUIGUARD_API_KEY", "")}
-                        _vis_resp    = requests.post(
-                            f"{API_BASE}/audit/vision",
-                            files=_vis_files,
-                            headers=_vis_headers,
-                        )
-                        if _vis_resp.status_code == 200:
-                            st.session_state.vision_result = _vis_resp.json()
-                            st.rerun()
-                        else:
-                            st.error(f"Vision scan failed: {_vis_resp.status_code} — {_vis_resp.text[:200]}")
-                    except Exception as _ve:
-                        st.error(f"Could not reach backend: {_ve}")
+            .uiverse-folder .front-side, .uiverse-folder .back-side {
+                position: absolute;
+                transition: transform var(--transition);
+                transform-origin: bottom center;
+            }
+            .uiverse-folder .back-side::before, .uiverse-folder .back-side::after {
+                content: ""; display: block; background-color: white; opacity: 0.5;
+                z-index: 0; width: var(--folder-W); height: var(--folder-H);
+                position: absolute; transform-origin: bottom center;
+                border-radius: 15px; transition: transform 350ms; z-index: 0;
+            }
+            .uiverse-container.is-hovered .back-side::before { transform: rotateX(-5deg) skewX(5deg); }
+            .uiverse-container.is-hovered .back-side::after { transform: rotateX(-15deg) skewX(12deg); }
+
+            .uiverse-folder .front-side { z-index: 1; }
+            .uiverse-container.is-hovered .front-side { transform: rotateX(-40deg) skewX(15deg); }
+
+            .uiverse-folder .tip {
+                background: linear-gradient(135deg, #ff9a56, #ff6f56);
+                width: 80px; height: 20px; border-radius: 12px 12px 0 0;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+                position: absolute; top: -10px; z-index: 2;
+            }
+            .uiverse-folder .cover {
+                background: linear-gradient(135deg, #ffe563, #ffc663);
+                width: var(--folder-W); height: var(--folder-H);
+                box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+                border-radius: 10px;
+            }
+            .uiverse-custom-file-upload {
+                font-size: 1.1em; color: #ffffff; text-align: center;
+                background: rgba(255, 255, 255, 0.2); border: none;
+                border-radius: 10px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+                display: inline-block; width: 100%; padding: 10px 35px;
+                position: relative; transition: background var(--transition) ease;
+            }
+            .uiverse-container.is-hovered .uiverse-custom-file-upload { background: rgba(255, 255, 255, 0.4); }
+
+            @keyframes float {
+                0% { transform: translateY(0px); }
+                50% { transform: translateY(-20px); }
+                100% { transform: translateY(0px); }
+            }
+
+            /* OVERLAY STREAMLIT UPLOADER - Removed global absolute positioning to prevent bugs */
+            [data-testid="stFileUploader"] {
+                opacity: 0.01 !important;
+                height: 100% !important;
+                cursor: pointer;
+            }
+            [data-testid="stFileUploader"] section {
+                height: 100% !important;
+                padding: 0 !important;
+            }
+            </style>
+
+            <div class="uploader-wrapper" id="uploader-wrap">
+                <div class="uiverse-container" id="uiverse-ui">
+                    <div class="uiverse-folder">
+                        <div class="front-side"><div class="tip"></div><div class="cover"></div></div>
+                        <div class="back-side cover"></div>
+                    </div>
+                    <div class="uiverse-custom-file-upload">Drop image here or click</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            _vis_file = st.file_uploader(
+                "Upload image", type=["jpg", "jpeg", "png", "webp"],
+                label_visibility="collapsed", key="vision_uploader"
+            )
+
+            # Sync hover state from invisible uploader to the Uiverse UI and overlay perfectly via negative margin
+            components.html("""
+                <script>
+                    const parentDoc = window.parent.document;
+                    function init() {
+                        const wrapper = parentDoc.getElementById('uploader-wrap');
+                        const ui = parentDoc.getElementById('uiverse-ui');
+                        const uploader = parentDoc.querySelector('[data-testid="stFileUploader"]');
+                        
+                        if (wrapper && ui && uploader) {
+                            const uploaderParent = uploader.parentElement;
+                            
+                            // Perfect overlay via CSS negative margin instead of DOM reparenting
+                            const wrapperHeight = wrapper.offsetHeight;
+                            uploaderParent.style.marginTop = "-" + wrapperHeight + "px";
+                            uploaderParent.style.height = wrapperHeight + "px";
+                            uploaderParent.style.position = "relative";
+                            uploaderParent.style.zIndex = "100";
+                            
+                            uploader.addEventListener('mouseenter', () => ui.classList.add('is-hovered'));
+                            uploader.addEventListener('mouseleave', () => ui.classList.remove('is-hovered'));
+                        } else {
+                            setTimeout(init, 50);
+                        }
+                    }
+                    init();
+                </script>
+            """, height=0)
+
+            if _vis_file is not None:
+                st.session_state.vision_image = _vis_file.getvalue()
+                st.session_state.vision_image_name = _vis_file.name
+                st.session_state.vision_image_type = _vis_file.type
+                st.rerun()
+
+        if st.session_state.vision_image is not None:
+            st.image(st.session_state.vision_image, use_container_width=True)
+
+            btn_col1, btn_col2 = st.columns([1, 1])
+            with btn_col1:
+                if st.button("◎  Scan for Bias Risk", key="btn_vision_scan", use_container_width=True):
+                    with st.spinner("Scanning with Gemini Vision..."):
+                        try:
+                            _vis_files   = {"file": (st.session_state.vision_image_name, st.session_state.vision_image, st.session_state.vision_image_type)}
+                            _vis_headers = {"X-API-Key": os.getenv("EQUIGUARD_API_KEY", "")}
+                            _vis_resp    = requests.post(
+                                f"{API_BASE}/audit/vision",
+                                files=_vis_files,
+                                headers=_vis_headers,
+                            )
+                            if _vis_resp.status_code == 200:
+                                st.session_state.vision_result = _vis_resp.json()
+                                st.rerun()
+                            else:
+                                st.error(f"Vision scan failed: {_vis_resp.status_code} — {_vis_resp.text[:200]}")
+                        except Exception as _ve:
+                            st.error(f"Could not reach backend: {_ve}")
+            
+            with btn_col2:
+                if st.button("✕ Remove Image", key="btn_vision_remove", use_container_width=True):
+                    st.session_state.vision_image = None
+                    st.session_state.vision_image_name = None
+                    st.session_state.vision_image_type = None
+                    st.session_state.vision_result = None
+                    st.rerun()
+                
+                components.html("""
+                <script>
+                (function applyDangerStyle() {
+                    try {
+                        var parentDoc = window.parent.document;
+                        setInterval(function() {
+                            var btns = parentDoc.querySelectorAll('button');
+                            btns.forEach(function(btn) {
+                                var txt = btn.innerText || btn.textContent || '';
+                                if (txt.indexOf('Remove Image') !== -1) {
+                                    if (btn.getAttribute('data-eq-styled') !== 'true') {
+                                        btn.setAttribute('data-eq-styled', 'true');
+                                        btn.style.cssText = [
+                                            'background: rgba(220,38,38,0.35) !important',
+                                            'border: 1px solid rgba(248,113,113,0.85) !important',
+                                            'color: #fca5a5 !important'
+                                        ].join(';');
+                                    }
+                                }
+                            });
+                        }, 200);
+                    } catch(e) { }
+                })();
+                </script>
+                """, height=0)
         else:
             st.markdown("""
             <div style="height:200px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
@@ -72,7 +248,7 @@ def render_vision_scanner():
             <div style="font-size:10px;color:#3a3d52;font-family:'DM Mono',monospace;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">Why this matters</div>
             <div style="font-size:12px;color:#4b5280;line-height:1.6;">
                 Resume scanners, KYC systems, and hiring tools that process photos risk encoding demographic bias.
-                EquiGuard detects this <em>before</em> deployment using Google Cloud Vision AI — scanning for faces,
+                EquiGuard detects this <em>before</em> deployment using Gemini 1.5 Flash Multimodal AI — scanning for faces,
                 sensitive labels, and demographic text.
             </div>
         </div>
@@ -99,7 +275,7 @@ def render_vision_scanner():
             st.markdown(f"""
             <div style="padding:1rem;background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.2);
             border-radius:12px;font-size:13px;color:#6b7280;font-family:'DM Mono',monospace;">
-                ◌ Vision AI not configured — {_vr.get('error', 'Check GOOGLE_APPLICATION_CREDENTIALS')}
+                ◌ Gemini Vision not configured — {_vr.get('error', 'Check GEMINI_API_KEY')}
             </div>
             """, unsafe_allow_html=True)
 

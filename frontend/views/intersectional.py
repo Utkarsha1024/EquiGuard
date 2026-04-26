@@ -156,7 +156,7 @@ def render_intersectional():
                             for _attempt in range(3):
                                 try:
                                     _chat = _client.chats.create(
-                                        model="gemini-2.5-flash",
+                                        model="gemini-2.0-flash-lite",
                                         config=_gtypes.GenerateContentConfig(system_instruction=_sys_prompt)
                                     )
                                     _reply = _chat.send_message("Please summarize the proxy risks in this correlation table.").text

@@ -5,11 +5,18 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from frontend.utils import api_get, api_post, get_kpi_values, suggest_columns
-from frontend.components import render_fairness_gauge, render_shap_waterfall, render_bias_drift
+from frontend.components import render_fairness_gauge, render_shap_waterfall, render_bias_drift, render_uiverse_download
 import json
 
 
 def render_audit_engine():
+    # Matrix animated background
+    matrix_html = '<div class="matrix-container">' + ''.join(
+        '<div class="matrix-pattern">' + ''.join('<div class="matrix-column"></div>' for _ in range(40)) + '</div>'
+        for _ in range(5)
+    ) + '</div>'
+    st.markdown(matrix_html, unsafe_allow_html=True)
+
     # PAGE: AUDIT ENGINE
     st.markdown("""
     <div class="eq-header">
@@ -106,21 +113,10 @@ def render_audit_engine():
                                 if (btn.getAttribute('data-eq-styled') !== 'true') {
                                     btn.setAttribute('data-eq-styled', 'true');
                                     btn.style.cssText = [
-                                        'background: rgba(153,27,27,0.22) !important',
-                                        'border: 1px solid rgba(239,68,68,0.6) !important',
-                                        'color: #f87171 !important',
-                                        'transition: background 0.2s, border-color 0.2s, color 0.2s'
+                                        'background: rgba(220,38,38,0.35) !important',
+                                        'border: 1px solid rgba(248,113,113,0.85) !important',
+                                        'color: #fca5a5 !important'
                                     ].join(';');
-                                    btn.addEventListener('mouseenter', function() {
-                                        this.style.background = 'rgba(220,38,38,0.35)';
-                                        this.style.borderColor = 'rgba(248,113,113,0.85)';
-                                        this.style.color = '#fca5a5';
-                                    });
-                                    btn.addEventListener('mouseleave', function() {
-                                        this.style.background = 'rgba(153,27,27,0.22)';
-                                        this.style.borderColor = 'rgba(239,68,68,0.6)';
-                                        this.style.color = '#f87171';
-                                    });
                                 }
                             }
                         });
@@ -131,7 +127,124 @@ def render_audit_engine():
             """, height=0)
 
         else:
+            st.markdown("""
+            <style>
+            .uiverse-container-audit {
+                --transition: 350ms;
+                --folder-W: 120px;
+                --folder-H: 80px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-end;
+                padding: 10px;
+                background: linear-gradient(135deg, #6dd5ed, #2193b0);
+                border-radius: 15px;
+                box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+                height: calc(var(--folder-H) * 1.7);
+                position: relative;
+                width: 100%;
+                margin-top: 1rem;
+            }
+            .uiverse-folder-audit {
+                position: absolute;
+                top: -20px;
+                left: calc(50% - 60px);
+                animation: float 2.5s infinite ease-in-out;
+                transition: transform var(--transition) ease;
+            }
+            .uiverse-container-audit.is-hovered .uiverse-folder-audit { transform: scale(1.05); }
+
+            .uiverse-folder-audit .front-side, .uiverse-folder-audit .back-side {
+                position: absolute;
+                transition: transform var(--transition);
+                transform-origin: bottom center;
+            }
+            .uiverse-folder-audit .back-side::before, .uiverse-folder-audit .back-side::after {
+                content: ""; display: block; background-color: white; opacity: 0.5;
+                z-index: 0; width: var(--folder-W); height: var(--folder-H);
+                position: absolute; transform-origin: bottom center;
+                border-radius: 15px; transition: transform 350ms; z-index: 0;
+            }
+            .uiverse-container-audit.is-hovered .back-side::before { transform: rotateX(-5deg) skewX(5deg); }
+            .uiverse-container-audit.is-hovered .back-side::after { transform: rotateX(-15deg) skewX(12deg); }
+
+            .uiverse-folder-audit .front-side { z-index: 1; }
+            .uiverse-container-audit.is-hovered .front-side { transform: rotateX(-40deg) skewX(15deg); }
+
+            .uiverse-folder-audit .tip {
+                background: linear-gradient(135deg, #ff9a56, #ff6f56);
+                width: 80px; height: 20px; border-radius: 12px 12px 0 0;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+                position: absolute; top: -10px; z-index: 2;
+            }
+            .uiverse-folder-audit .cover {
+                background: linear-gradient(135deg, #ffe563, #ffc663);
+                width: var(--folder-W); height: var(--folder-H);
+                box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+                border-radius: 10px;
+            }
+            .uiverse-custom-file-upload-audit {
+                font-size: 1.1em; color: #ffffff; text-align: center;
+                background: rgba(255, 255, 255, 0.2); border: none;
+                border-radius: 10px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+                display: inline-block; width: 100%; padding: 10px 35px;
+                position: relative; transition: background var(--transition) ease;
+            }
+            .uiverse-container-audit.is-hovered .uiverse-custom-file-upload-audit { background: rgba(255, 255, 255, 0.4); }
+
+            /* OVERLAY STREAMLIT UPLOADER - Removed global absolute positioning */
+            [data-testid="stFileUploader"] {
+                opacity: 0.01 !important;
+                height: 100% !important;
+                cursor: pointer;
+            }
+            [data-testid="stFileUploader"] section {
+                height: 100% !important;
+                padding: 0 !important;
+            }
+            </style>
+
+            <div class="uploader-wrapper-audit" id="uploader-wrap-audit">
+                <div class="uiverse-container-audit" id="uiverse-ui-audit">
+                    <div class="uiverse-folder-audit">
+                        <div class="front-side"><div class="tip"></div><div class="cover"></div></div>
+                        <div class="back-side cover"></div>
+                    </div>
+                    <div class="uiverse-custom-file-upload-audit">Drop dataset (CSV) here or click</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
             uploaded_file = st.file_uploader("Upload Dataset (CSV)", type=["csv"], label_visibility="collapsed")
+
+            components.html("""
+                <script>
+                    const parentDoc = window.parent.document;
+                    function init() {
+                        const wrapper = parentDoc.getElementById('uploader-wrap-audit');
+                        const ui = parentDoc.getElementById('uiverse-ui-audit');
+                        const uploader = parentDoc.querySelector('[data-testid="stFileUploader"]');
+                        
+                        if (wrapper && ui && uploader) {
+                            const uploaderParent = uploader.parentElement;
+                            
+                            // Perfect overlay via CSS negative margin instead of DOM reparenting
+                            const wrapperHeight = wrapper.offsetHeight;
+                            uploaderParent.style.marginTop = "-" + wrapperHeight + "px";
+                            uploaderParent.style.height = wrapperHeight + "px";
+                            uploaderParent.style.position = "relative";
+                            uploaderParent.style.zIndex = "100";
+                            
+                            uploader.addEventListener('mouseenter', () => ui.classList.add('is-hovered'));
+                            uploader.addEventListener('mouseleave', () => ui.classList.remove('is-hovered'));
+                        } else {
+                            setTimeout(init, 50);
+                        }
+                    }
+                    init();
+                </script>
+            """, height=0)
             
             if uploaded_file is not None:
                 df = pd.read_csv(uploaded_file, sep=None, engine='python')
@@ -148,6 +261,7 @@ def render_audit_engine():
                 <div class="info-chip">◌ Using default: data/golden_demo_dataset.csv</div>
                 """, unsafe_allow_html=True)
                 st.session_state.data_path = "data/golden_demo_dataset.csv"
+                st.session_state.uploaded_file_name = "golden_demo_dataset.csv"
                 st.session_state.target_col = "loan_approved"
                 st.session_state.protected_col = "race"
                 st.markdown("""
@@ -165,6 +279,7 @@ def render_audit_engine():
 
         api_payload = {
             "data_path": st.session_state.data_path,
+            "file_name": st.session_state.get("uploaded_file_name", "golden_demo_dataset.csv"),
             "target_col": st.session_state.target_col,
             "protected_col": st.session_state.protected_col
         }
@@ -330,13 +445,12 @@ def render_audit_engine():
                     pass  # stays None — button will render disabled
     
             if st.session_state.report_bytes:
-                st.download_button(
-                    label="↓  Export Executive Report (PDF)",
-                    data=st.session_state.report_bytes,
+                render_uiverse_download(
+                    file_bytes=st.session_state.report_bytes,
                     file_name="EquiGuard_Executive_Report.pdf",
-                    mime="application/pdf",
-                    width="stretch",
-                    key="dl_report",
+                    mime_type="application/pdf",
+                    label="Executive Report",
+                    completed_label="Downloaded"
                 )
             else:
                 st.button("↓  Export Executive Report (PDF)", disabled=True,
@@ -362,14 +476,12 @@ def render_audit_engine():
     
                 st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
                 if st.session_state.cert_bytes:
-                    st.download_button(
-                        label="⬡  Download EEOC Compliance Certificate",
-                        data=st.session_state.cert_bytes,
+                    render_uiverse_download(
+                        file_bytes=st.session_state.cert_bytes,
                         file_name="EquiGuard_EEOC_Certificate.pdf",
-                        mime="application/pdf",
-                        width="stretch",
-                        help="One-page compliance certificate — issue to auditors or executives.",
-                        key="dl_cert",
+                        mime_type="application/pdf",
+                        label="Compliance Cert",
+                        completed_label="Downloaded"
                     )
                 else:
                     st.button("⬡  Download EEOC Compliance Certificate",
@@ -389,14 +501,12 @@ def render_audit_engine():
     
                 st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
                 if st.session_state.pkg_bytes:
-                    st.download_button(
-                        label="↓  Download Regulatory Package (ZIP)",
-                        data=st.session_state.pkg_bytes,
+                    render_uiverse_download(
+                        file_bytes=st.session_state.pkg_bytes,
                         file_name="EquiGuard_Regulatory_Package.zip",
-                        mime="application/zip",
-                        width="stretch",
-                        help="Full package: executive PDF, certificate, methodology, raw JSON.",
-                        key="dl_pkg",
+                        mime_type="application/zip",
+                        label="Regulatory ZIP",
+                        completed_label="Downloaded"
                     )
                 else:
                     st.button("↓  Download Regulatory Package (ZIP)", disabled=True,
@@ -507,22 +617,22 @@ def render_audit_engine():
     st.markdown('</div>', unsafe_allow_html=True)
     
     
-    # ── Vertex AI Remediation Agent ────────────────────────────────────────────
+    # ── Gemini Remediation Agent ────────────────────────────────────────────
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.markdown("""
-    <div class="section-title">◈ Vertex AI Remediation Agent</div>
+    <div class="section-title">◈ Gemini Remediation Agent</div>
     <div style="font-size:11px;color:#3a3d52;font-family:'DM Mono',monospace;margin-bottom:1rem;margin-top:-0.8rem;">
-        Enterprise-grade · Zero data retention · Powered by Google Vertex AI
+        Powered by Google Gemini · AI-generated mitigation strategies
     </div>
     """, unsafe_allow_html=True)
     
-    # Zero-retention badge
+    # Gemini badge
     st.markdown("""
     <div class="vertex-banner">
-        <div class="vertex-banner-icon">🔒</div>
+        <div class="vertex-banner-icon">✨</div>
         <div>
-            <div class="vertex-banner-text">Zero Data Retention — Powered by Google Vertex AI</div>
-            <div class="vertex-banner-sub">Your audit data is processed in an enterprise VPC and never used to train base models.</div>
+            <div class="vertex-banner-text">Powered by Google Gemini AI</div>
+            <div class="vertex-banner-sub">Generates three production-ready bias mitigation strategies for your model.</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -531,7 +641,7 @@ def render_audit_engine():
     _rem_btn_lbl  = "◈  Generate Mitigation Code" if not st.session_state.mitigation_code else "↺  Regenerate Mitigation Code"
     
     if st.button(_rem_btn_lbl, key="btn_remediate", disabled=_rem_disabled):
-        with st.spinner("Vertex AI generating remediation strategies..."):
+        with st.spinner("Gemini generating remediation strategies..."):
             try:
                 _rem_payload = {
                     "top_biased_feature": st.session_state.audit_result.get("top_biased_feature", ""),
@@ -563,15 +673,25 @@ def render_audit_engine():
     if st.session_state.mitigation_code:
         _rem_model = getattr(st.session_state, "mitigation_model", "template")
         _rem_note  = getattr(st.session_state, "mitigation_note", "")
-        _model_color = "#4ade80" if "vertex" in _rem_model else "#fbbf24"
-        st.markdown(f"""
-        <div style="margin:1rem 0 0.5rem;display:flex;align-items:center;gap:10px;">
-            <span style="font-size:11px;color:{_model_color};font-family:'DM Mono',monospace;">
-                ◉ {_rem_model}
-            </span>
-            <span style="font-size:11px;color:#3a3d52;font-family:'DM Sans',monospace;">{_rem_note}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        _model_color = "#4ade80" if "gemini" in _rem_model else "#fbbf24"
+        # Show warning banner if Gemini fell back to template due to an error
+        if _rem_model == "template" and ("\u26a0" in _rem_note or "rate limit" in _rem_note.lower() or "error" in _rem_note.lower()):
+            st.markdown(f"""
+            <div style="background:#1a1208;border:1px solid #854d0e;border-radius:8px;padding:10px 14px;margin-bottom:0.75rem;display:flex;align-items:flex-start;gap:10px;">
+                <span style="font-size:16px;">⚠️</span>
+                <div>
+                    <div style="font-size:12px;font-weight:600;color:#fbbf24;font-family:'DM Mono',monospace;margin-bottom:2px;">Gemini Unavailable</div>
+                    <div style="font-size:11px;color:#a16207;font-family:'DM Sans',sans-serif;">{_rem_note}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="margin:1rem 0 0.5rem;display:flex;align-items:center;gap:10px;">
+                <span style="font-size:11px;color:{_model_color};font-family:'DM Mono',monospace;">&#9689; {_rem_model}</span>
+                <span style="font-size:11px;color:#3a3d52;font-family:'DM Sans',monospace;">{_rem_note}</span>
+            </div>
+            """, unsafe_allow_html=True)
         st.code(st.session_state.mitigation_code, language="python")
     
     st.markdown('</div>', unsafe_allow_html=True)

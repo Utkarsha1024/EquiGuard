@@ -1,4 +1,7 @@
 import os
+import io
+from PIL import Image
+from google import genai
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from backend.dependencies import require_api_key
 from backend.config import get_settings
@@ -6,31 +9,9 @@ from backend.utils import _build_narrative_fallback
 
 router = APIRouter(tags=["Google AI"])
 
-# ── Google AI imports (optional — degrade gracefully if not installed) ──────────
-try:
-    from google import genai as _genai_sdk
-    _GENAI_AVAILABLE = True
-except ImportError:
-    _GENAI_AVAILABLE = False
-
-try:
-    import vertexai
-    from vertexai.generative_models import GenerativeModel as VertexModel
-    _VERTEX_AVAILABLE = True
-except ImportError:
-    _VERTEX_AVAILABLE = False
-
-try:
-    from google.cloud import vision as _vision
-    _VISION_AVAILABLE = True
-except ImportError:
-    _VISION_AVAILABLE = False
-
 # ── Configure Gemini Client ──────────────────────────────────────────────────
 _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-_genai_client = None
-if _gemini_key and _GENAI_AVAILABLE:
-    _genai_client = _genai_sdk.Client(api_key=_gemini_key)
+_genai_client = genai.Client(api_key=_gemini_key) if _gemini_key else None
 
 
 @router.post("/audit/narrative", dependencies=[Depends(require_api_key)])
@@ -71,10 +52,10 @@ def audit_narrative(payload: dict):
         )
         try:
             response = _genai_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3-flash-preview",
                 contents=prompt,
             )
-            return {"narrative": response.text, "model": "gemini-2.5-flash"}
+            return {"narrative": response.text, "model": "gemini-3-flash-preview"}
         except Exception:
             pass  # fall through to template
 
@@ -100,9 +81,8 @@ DEMOGRAPHIC_KEYWORDS = {
 @router.post("/audit/vision")
 async def audit_vision(request: Request, file: UploadFile = File(...)):
     """
-    Scans an uploaded image for demographic data leakage using Cloud Vision AI.
+    Scans an uploaded image for demographic data leakage using Gemini 1.5 Flash Multimodal AI.
     Auth: manually checks X-API-Key header (file upload incompatible with Depends).
-    Degrades gracefully when Vision AI credentials are not configured.
     """
     settings = get_settings()
     api_key  = request.headers.get("X-API-Key", "")
@@ -112,99 +92,46 @@ async def audit_vision(request: Request, file: UploadFile = File(...)):
             detail="Invalid or missing API key. Pass your key in the X-API-Key header.",
         )
 
-    if not _VISION_AVAILABLE:
-        return {
-            "error": "Vision AI not configured — install google-cloud-vision and set GOOGLE_APPLICATION_CREDENTIALS",
-            "risk_level": "UNKNOWN",
-        }
-
     try:
-        vision_client = _vision.ImageAnnotatorClient()
+        content = await file.read()
+        img = Image.open(io.BytesIO(content))
+
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+
+        prompt = "Does this image contain a human face or demographic info? Reply exactly 'CRITICAL' if yes, or 'PASS' if no."
+        response = client.models.generate_content(
+            model='gemini-3-flash-preview',
+            contents=[prompt, img]
+        )
+
+        risk = "CRITICAL" if "CRITICAL" in response.text.upper() else "LOW"
+        faces = 1 if risk == "CRITICAL" else 0
+
+        compliance_warning = (
+            "This image contains detectable protected attributes. Using images of this type as inputs "
+            "to automated hiring or scoring systems may violate GDPR Article 9 and EEOC guidelines."
+            if risk == "CRITICAL" else
+            "No significant protected attributes detected. Standard data minimisation practices apply."
+        )
+        recommendation = (
+            "Manual review required for demographic filtering."
+            if risk == "CRITICAL" else "Clear for automated processing."
+        )
+
+        return {
+            "risk_level": risk,
+            "risk_score": 95 if risk == "CRITICAL" else 10,
+            "faces_detected": faces,
+            "flagged_labels": ["Human Face/Demographic Detected"] if risk == "CRITICAL" else [],
+            "flagged_text": [],
+            "recommendation": recommendation,
+            "compliance_warning": compliance_warning
+        }
     except Exception as e:
         return {
-            "error": f"Vision AI credentials not configured: {e}",
+            "error": f"Gemini Vision Error: {e}",
             "risk_level": "UNKNOWN",
         }
-
-    content = await file.read()
-    image   = _vision.Image(content=content)
-
-    faces_detected  = 0
-    flagged_labels  = []
-    flagged_text    = []
-
-    try:
-        face_resp      = vision_client.face_detection(image=image)
-        faces_detected = len(face_resp.face_annotations)
-    except Exception as e:
-        if "403" in str(e) or "disabled" in str(e).lower() or "permission" in str(e).lower():
-            return {
-                "error": f"Vision AI API Error: {e}",
-                "risk_level": "UNKNOWN",
-            }
-        pass
-
-    try:
-        label_resp = vision_client.label_detection(image=image, max_results=20)
-        flagged_labels = [
-            lbl.description.lower()
-            for lbl in label_resp.label_annotations
-            if lbl.description.lower() in SENSITIVE_LABELS and lbl.score > 0.7
-        ]
-    except Exception:
-        pass
-
-    try:
-        text_resp = vision_client.text_detection(image=image)
-        if text_resp.text_annotations:
-            detected_text = text_resp.text_annotations[0].description
-            flagged_text = [
-                word for word in detected_text.lower().split()
-                if word in DEMOGRAPHIC_KEYWORDS
-            ]
-    except Exception:
-        pass
-
-    risk_points = 0
-    if faces_detected > 0:
-        risk_points += 40
-    risk_points += min(len(flagged_labels) * 10, 30)
-    risk_points += min(len(flagged_text) * 5, 30)
-    risk_score  = min(risk_points, 100)
-
-    if risk_score >= 70:
-        risk_level = "CRITICAL"
-    elif risk_score >= 40:
-        risk_level = "HIGH"
-    elif risk_score >= 20:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "LOW"
-
-    compliance_warning = (
-        "This image contains detectable protected attributes (faces, demographic labels, "
-        "or demographic text). Using images of this type as inputs to automated hiring, "
-        "scoring, or decision-making systems may violate GDPR Article 9 and EEOC guidelines."
-        if risk_level in ("HIGH", "CRITICAL") else
-        "No significant protected attributes detected. Standard data minimisation practices apply."
-    )
-
-    recommendation = (
-        "Do not feed images of this type into hiring or scoring models. "
-        "Remove or anonymise faces and any demographic identifiers before ingestion."
-        if risk_level in ("HIGH", "CRITICAL") else
-        "Low demographic signal detected. Continue monitoring for edge cases."
-    )
-
-    return {
-        "risk_level":          risk_level,
-        "risk_score":          risk_score,
-        "faces_detected":      faces_detected,
-        "flagged_labels":      flagged_labels,
-        "flagged_text":        flagged_text,
-        "compliance_warning":  compliance_warning,
-        "recommendation":      recommendation,
-    }
 
 _REMEDIATE_FALLBACK_TEMPLATE = '''
 ## Strategy 1 — Pre-processing: Remove Proxy Columns
@@ -311,9 +238,11 @@ print(f"Disparate impact ratio:      {{unpriv_rate / priv_rate:.3f}}")
 @router.post("/audit/remediate", dependencies=[Depends(require_api_key)])
 def audit_remediate(payload: dict):
     """
-    Generates three production-ready Python mitigation strategies via Vertex AI Gemini.
-    Falls back to a parameterised template when Vertex AI is not configured.
+    Generates three production-ready Python mitigation strategies via Gemini.
+    Falls back to a parameterised template when GEMINI_API_KEY is not configured or quota is exhausted.
     """
+    import time
+
     top_feature     = payload.get("top_biased_feature", "unknown_feature")
     flagged_columns = payload.get("flagged_columns", [])
     fairness_ratio  = payload.get("fairness_ratio", 0.0)
@@ -321,47 +250,54 @@ def audit_remediate(payload: dict):
     target_col      = payload.get("target_col", "loan_approved")
     protected_col   = payload.get("protected_col", "race")
 
-    settings = get_settings()
-    project  = settings["gcp_project_id"]
-    location = settings["gcp_location"]
+    prompt = (
+        "You are an expert ML fairness engineer. Generate production-ready Python "
+        "code to mitigate bias in a scikit-learn pipeline.\n\n"
+        "Model context:\n"
+        f'- Dataset: CSV file at "{data_path}"\n'
+        f'- Target column: "{target_col}"\n'
+        f'- Protected attribute: "{protected_col}"\n'
+        f"- Current fairness ratio: {fairness_ratio:.3f} (target: >= 0.80)\n"
+        f'- Top biased feature: "{top_feature}"\n'
+        f"- Flagged proxy columns: {flagged_columns}\n\n"
+        "Generate THREE mitigation strategies as Python code:\n"
+        "1. Pre-processing: Remove or transform the proxy columns\n"
+        "2. In-processing: Use a fairness-aware classifier "
+        "(use aif360's Reweighing or AdversarialDebiasing)\n"
+        "3. Post-processing: Adjust decision thresholds per group\n\n"
+        "For each strategy, provide:\n"
+        "- A brief explanation (1 sentence)\n"
+        "- Complete, runnable Python code using sklearn and aif360\n"
+        "- Expected impact on fairness ratio\n\n"
+        "Format as three clearly labeled sections. "
+        "Use markdown code blocks. "
+        "Keep each strategy under 30 lines of code."
+    )
 
-    if project and _VERTEX_AVAILABLE:
-        try:
-            vertexai.init(project=project, location=location)
-            prompt = (
-                "You are an expert ML fairness engineer. Generate production-ready Python "
-                "code to mitigate bias in a scikit-learn pipeline.\n\n"
-                "Model context:\n"
-                f'- Dataset: CSV file at "{data_path}"\n'
-                f'- Target column: "{target_col}"\n'
-                f'- Protected attribute: "{protected_col}"\n'
-                f"- Current fairness ratio: {fairness_ratio:.3f} (target: >= 0.80)\n"
-                f'- Top biased feature: "{top_feature}"\n'
-                f"- Flagged proxy columns: {flagged_columns}\n\n"
-                "Generate THREE mitigation strategies as Python code:\n"
-                "1. Pre-processing: Remove or transform the proxy columns\n"
-                "2. In-processing: Use a fairness-aware classifier "
-                "(use aif360's Reweighing or AdversarialDebiasing)\n"
-                "3. Post-processing: Adjust decision thresholds per group\n\n"
-                "For each strategy, provide:\n"
-                "- A brief explanation (1 sentence)\n"
-                "- Complete, runnable Python code using sklearn and aif360\n"
-                "- Expected impact on fairness ratio\n\n"
-                "Format as three clearly labeled sections. "
-                "Use markdown code blocks. "
-                "Keep each strategy under 30 lines of code."
-            )
-            vertex_model = VertexModel("gemini-1.5-flash-001")
-            response     = vertex_model.generate_content(prompt)
-            return {
-                "mitigation_code":  response.text,
-                "model":            "vertex-ai/gemini-1.5-flash-001",
-                "zero_retention":   True,
-                "note":             "Generated via Vertex AI — enterprise zero-data-retention environment",
-            }
-        except Exception:
-            pass  # fall through to template
+    _last_error = None
+    if _genai_client:
+        for attempt in range(3):                         # up to 3 attempts
+            try:
+                response = _genai_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                )
+                return {
+                    "mitigation_code":  response.text,
+                    "model":            "gemini-2.0-flash",
+                    "zero_retention":   False,
+                    "note":             "Generated by Gemini — Powered by Google AI",
+                    "error":            None,
+                }
+            except Exception as e:
+                _last_error = str(e)
+                if "429" in _last_error or "RESOURCE_EXHAUSTED" in _last_error:
+                    wait = 2 ** attempt          # 1s, 2s, 4s
+                    time.sleep(wait)
+                    continue                      # retry
+                break                            # non-rate-limit error — don't retry
 
+    # Fallback template (rate-limited or no key)
     code = _REMEDIATE_FALLBACK_TEMPLATE.format(
         data_path=data_path,
         flagged_columns=flagged_columns,
@@ -369,9 +305,16 @@ def audit_remediate(payload: dict):
         protected_col=protected_col,
         fairness_ratio=fairness_ratio,
     )
+    note = "GEMINI_API_KEY not configured — showing parameterised template code"
+    if _last_error:
+        if "429" in _last_error or "RESOURCE_EXHAUSTED" in _last_error:
+            note = "⚠️ Gemini rate limit hit (429) — showing template. Wait a moment and try again."
+        else:
+            note = f"⚠️ Gemini error — showing template. Reason: {_last_error[:120]}"
     return {
         "mitigation_code":  code,
         "model":            "template",
         "zero_retention":   False,
-        "note":             "Vertex AI not configured — showing parameterised template code",
+        "note":             note,
+        "error":            _last_error,
     }

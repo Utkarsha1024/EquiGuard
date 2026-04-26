@@ -229,4 +229,64 @@ def render_bias_drift(history_data: list):
 
     return fig
 
+    return fig
 
+# ── Uiverse Download Button ──────────────────────────────────────────────────
+def render_uiverse_download(file_bytes, file_name, mime_type, label="Download", completed_label="Open"):
+    """
+    Renders a custom Uiverse download checkbox component wrapped in an HTML <a> tag
+    containing the file data as a Base64 URI.
+    """
+    import base64
+    import streamlit as st
+    
+    b64 = base64.b64encode(file_bytes).decode()
+    href = f"data:{mime_type};base64,{b64}"
+    
+    # We assign a unique ID to the input so clicking the label toggles it.
+    import uuid
+    uid = str(uuid.uuid4())[:8]
+    
+    html = f"""
+    <div style="display:flex; justify-content:center; margin-bottom: 8px; width: 100%;">
+        <a href="{href}" download="{file_name}" style="display: none;" id="dl-link-{uid}"></a>
+        <div class="uv-dl-container">
+          <label class="uv-dl-label" id="uv-label-{uid}" for="uv-dl-{uid}">
+            <input type="checkbox" id="uv-dl-{uid}" class="uv-dl-input" />
+            <span class="uv-dl-circle">
+              <svg class="uv-dl-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 19V5m0 14-4-4m4 4 4-4"></path>
+              </svg>
+              <div class="uv-dl-square"></div>
+            </span>
+            <span class="uv-dl-title">{label}</span>
+            <span class="uv-dl-title">{completed_label}</span>
+          </label>
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+    
+    js = f"""
+    <script>
+    (function() {{
+        try {{
+            var doc = window.parent.document;
+            var input = doc.getElementById('uv-dl-{uid}');
+            var link = doc.getElementById('dl-link-{uid}');
+            if (input && link) {{
+                // Ensure we don't attach multiple listeners on hot-reloads
+                if (!input.dataset.dlAttached) {{
+                    input.addEventListener('change', function(e) {{
+                        if (this.checked) {{
+                            setTimeout(() => {{ link.click(); }}, 150);
+                        }}
+                    }});
+                    input.dataset.dlAttached = 'true';
+                }}
+            }}
+        }} catch(e) {{}}
+    }})();
+    </script>
+    """
+    st.components.v1.html(js, height=0)

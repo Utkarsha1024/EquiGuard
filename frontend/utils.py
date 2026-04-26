@@ -90,7 +90,7 @@ def suggest_columns(df: pd.DataFrame) -> dict:
         from google import genai as _genai
         _client = _genai.Client(api_key=gemini_key)
         resp = _client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash-lite",
             contents=prompt,
         )
         raw = resp.text.strip()

@@ -34,27 +34,28 @@ def render_dashboard():
     st.markdown(f"""
     <div class="kpi-grid">
         <div class="kpi-card {ratio_color}">
-            <div class="kpi-label">Fairness Ratio</div>
+            <div class="kpi-label" style="margin-bottom:8px;">Fairness Ratio</div>
             <div class="kpi-value {ratio_color}">{ratio_val}</div>
-            <div class="kpi-sub">EEOC threshold ≥ 0.80</div>
+            <div class="kpi-sub" style="margin-top:8px;">EEOC threshold ≥ 0.80</div>
         </div>
         <div class="kpi-card {status_color}">
-            <div class="kpi-label">Compliance Status</div>
+            <div class="kpi-label" style="margin-bottom:8px;">Compliance Status</div>
             <div class="kpi-value {status_color}">{status_val}</div>
-            <div class="kpi-sub">US EEOC 4/5ths Rule</div>
+            <div class="kpi-sub" style="margin-top:8px;">US EEOC 4/5ths Rule</div>
         </div>
         <div class="kpi-card indigo">
-            <div class="kpi-label">Top Bias Driver</div>
-            <div class="kpi-value indigo" style="font-size:18px;margin-top:4px;">{feature_val}</div>
-            <div class="kpi-sub">Highest SHAP impact</div>
+            <div class="kpi-label" style="margin-bottom:8px;">Top Bias Driver</div>
+            <div class="kpi-value indigo" style="font-size:18px;">{feature_val}</div>
+            <div class="kpi-sub" style="margin-top:8px;">Highest SHAP impact</div>
         </div>
         <div class="kpi-card amber">
-            <div class="kpi-label">Audit Engine</div>
-            <div class="kpi-value amber" style="font-size:18px;margin-top:4px;">aif360 + SHAP</div>
-            <div class="kpi-sub">IBM Fairness 360 active</div>
+            <div class="kpi-label" style="margin-bottom:8px;">Audit Engine</div>
+            <div class="kpi-value amber" style="font-size:18px;">aif360 + SHAP</div>
+            <div class="kpi-sub" style="margin-top:8px;">IBM Fairness 360 active</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
 
     # ── Additional aif360 metrics (shown when available)
     _res = st.session_state.audit_result
@@ -259,7 +260,60 @@ def render_dashboard():
         for _msg in st.session_state.chat_history:
             with st.chat_message(_msg["role"]):
                 st.markdown(_msg["content"])
-        if _user_input := st.chat_input("e.g. Why did we fail the EEOC check?", key="agent_input"):
+        
+        if "agent_input_key" not in st.session_state:
+            st.session_state.agent_input_key = 0
+            
+        # Inline input — avoids st.chat_input which is always fixed to the bottom viewport
+        _col_input, _col_send = st.columns([5, 1])
+        with _col_input:
+            _user_input = st.text_input(
+                "Ask the agent",
+                placeholder="e.g. Why did we fail the EEOC check?",
+                key=f"agent_input_{st.session_state.agent_input_key}",
+                label_visibility="collapsed"
+            )
+        with _col_send:
+            # Custom Uiverse send button (pill with paper-plane icon)
+            st.markdown("""
+            <div class="uv-send-wrap">
+              <div class="uv-send-container" id="uv-send-btn">
+                <div class="uv-send-inner">
+                  <span class="uv-send-label">Send</span>
+                  <svg class="uv-send-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22 2L11 13"/>
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+            # Hide the real button visually; it's triggered by JS
+            st.markdown('<style>#uv-agent-send-hidden { display:none !important; }</style>', unsafe_allow_html=True)
+            _send_clicked = st.button("HiddenSend", type="primary", key="agent_send")
+
+        # JS bridge — forwards click on custom button to the hidden Streamlit button
+        import streamlit.components.v1 as _comp
+        _comp.html("""
+        <script>
+        (function() {
+          try {
+            var doc = window.parent.document;
+            var btn = doc.getElementById('uv-send-btn');
+            if (btn && !btn.dataset.attached) {
+              btn.addEventListener('click', function() {
+                var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
+                var target = triggers.find(function(b) { return b.innerText.includes('HiddenSend'); });
+                if (target) target.click();
+              });
+              btn.dataset.attached = 'true';
+            }
+          } catch(e) {}
+        })();
+        </script>
+        """, height=0)
+        
+        if _send_clicked and _user_input.strip():
             st.session_state.chat_history.append({"role": "user", "content": _user_input})
             with st.chat_message("user"):
                 st.markdown(_user_input)
@@ -275,26 +329,35 @@ def render_dashboard():
                             "You are the EquiGuard Audit Agent — an AI expert in EEOC compliance and algorithmic bias detection.\n\n"
                             f"Live audit results:\n{json.dumps(_res, indent=2)}\n\n"
                             f"Flagged proxy variables: {_prox if _prox else 'None detected'}\n\n"
-                            "Answer in plain English for a business executive. Be concise, cite specific numbers, never fabricate values."
+                            "CRITICAL INSTRUCTIONS:\n"
+                            "1. Act as a helpful, conversational chatbot.\n"
+                            "2. ONLY answer the user's specific question. Do NOT proactively dump a summary of the entire audit unless explicitly asked to 'summarize'.\n"
+                            "3. If the user simply greets you (e.g., 'hello', 'hi'), just greet them back and ask how you can help them interpret the current audit results.\n"
+                            "4. When answering questions about the data, be concise, cite specific numbers from the JSON above, and never fabricate values. Explain things simply for a business executive."
                         )
                         _gemini_hist = []
                         for _m in st.session_state.chat_history[:-1]:
                             _role = "model" if _m["role"] == "assistant" else "user"
                             _gemini_hist.append(_gtypes.Content(role=_role, parts=[_gtypes.Part(text=_m["content"])]))
                         _chat_session = _client.chats.create(
-                            model="gemini-2.5-flash",
+                            model="gemini-2.0-flash-lite",
                             config=_gtypes.GenerateContentConfig(system_instruction=_sys),
                             history=_gemini_hist,
                         )
                         _reply = _chat_session.send_message(_user_input).text
                         st.markdown(_reply)
                         st.session_state.chat_history.append({"role": "assistant", "content": _reply})
+                        st.session_state.agent_input_key += 1
+                        st.rerun()
                     except Exception as _e:
                         _err = f"Agent error: {_e}"
                         st.error(_err)
                         st.session_state.chat_history.append({"role": "assistant", "content": _err})
+                        st.session_state.agent_input_key += 1
+                        st.rerun()
         if st.session_state.chat_history:
             if st.button("✕  Clear conversation", key="btn_clear_chat"):
                 st.session_state.chat_history = []
+                st.session_state.agent_input_key += 1
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)

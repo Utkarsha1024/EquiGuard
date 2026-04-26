@@ -23,8 +23,6 @@ def get_settings():
         "db_url":     os.getenv("DATABASE_URL", "sqlite:///equiguard.db"),
         "host":       os.getenv("HOST", "127.0.0.1"),
         "port":       int(os.getenv("PORT", 8000)),
-        "gcp_project_id": os.getenv("GCP_PROJECT_ID", "").strip(),
-        "gcp_location":   os.getenv("GCP_LOCATION", "us-central1").strip(),
         "gemini_api_key": os.getenv("GEMINI_API_KEY", "").strip(),
         "webhook_url":     os.getenv("WEBHOOK_URL", "").strip(),
         "webhook_enabled": os.getenv("WEBHOOK_ENABLED", "false").lower() == "true",

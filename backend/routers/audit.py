@@ -42,6 +42,7 @@ def audit_model(payload: dict = None):
 def audit_compliance(payload: dict = None, background_tasks: BackgroundTasks = None):
     payload = payload or {}
     data_path     = payload.get("data_path",     "data/golden_demo_dataset.csv")
+    file_name     = payload.get("file_name",     "golden_demo_dataset.csv")
     target_col    = payload.get("target_col",    "loan_approved")
     protected_col = payload.get("protected_col", "race")
 
@@ -58,6 +59,7 @@ def audit_compliance(payload: dict = None, background_tasks: BackgroundTasks = N
         fairness_ratio=audit_result["fairness_ratio"],
         compliance_pass=audit_result["compliance_pass"],
         top_feature=audit_result["top_biased_feature"],
+        file_name=file_name,
     )
 
     # Fire webhook alert on FAIL
@@ -97,6 +99,7 @@ def audit_preprocess(payload: dict):
 def audit_mitigate(payload: dict):
     flagged_columns = payload.get("flagged_columns", [])
     data_path       = payload.get("data_path",       "data/golden_demo_dataset.csv")
+    file_name       = payload.get("file_name",       "golden_demo_dataset.csv")
     target_col      = payload.get("target_col",      "loan_approved")
     protected_col   = payload.get("protected_col",   "race")
 
@@ -119,6 +122,7 @@ def audit_mitigate(payload: dict):
         fairness_ratio=audit_result["fairness_ratio"],
         compliance_pass=audit_result["compliance_pass"],
         top_feature=audit_result["top_biased_feature"],
+        file_name=file_name,
     )
 
     response = {
@@ -367,7 +371,7 @@ def audit_preflight(payload: dict = None):
                 "Return ONLY valid JSON. No markdown, no explanation outside the JSON."
             )
             resp = _client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash-lite",
                 contents=prompt,
             )
             raw = resp.text.strip()
@@ -377,7 +381,7 @@ def audit_preflight(payload: dict = None):
             if raw.endswith("```"):
                 raw = raw.rsplit("```", 1)[0]
             data = json.loads(raw)
-            data["engine"] = "gemini-2.5-flash"
+            data["engine"] = "gemini-2.0-flash-lite"
             data["columns_checked"] = len(df.columns)
             data["rows_sampled"]    = len(df)
             return data

@@ -3,7 +3,6 @@ altair
 annotated-types
 anyio
 attrs
-audit-AI
 blinker
 cachetools
 certifi

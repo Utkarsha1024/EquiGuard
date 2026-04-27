@@ -13,6 +13,24 @@ from dotenv import load_dotenv
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv()
 
+# ── Boot FastAPI backend (Streamlit Cloud single-process trick) ────────────────
+# Streamlit Cloud only runs one process. This spawns the FastAPI backend as a
+# child process on port 8000 the first time the app boots, then sets a flag so
+# subsequent Streamlit re-runs don't spawn duplicate servers.
+import subprocess
+import time
+
+if "BACKEND_STARTED" not in os.environ:
+    print("[EquiGuard] Booting FastAPI backend…")
+    subprocess.Popen(
+        ["uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.environ["BACKEND_STARTED"] = "1"
+    time.sleep(3)   # Allow uvicorn time to bind before Streamlit renders the UI
+# ──────────────────────────────────────────────────────────────────────────────
+
 # ── Custom Components ─────────────────────────────────────────────────────────
 def render_gradual_blur(position='bottom', strength=2, height='6rem', divCount=5,
                         exponential=False, curve='linear', opacity=1, zIndex=9999):

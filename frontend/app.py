@@ -180,9 +180,16 @@ if "hero_dismissed" not in st.session_state:
 
 
 # ── Page Config ────────────────────────────────────────────────────────────────
+try:
+    from PIL import Image as _PILImage
+    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo_small.png")
+    _page_icon = _PILImage.open(_icon_path)
+except Exception:
+    _page_icon = "⚖"
+
 st.set_page_config(
     page_title="EquiGuard — AI Bias Firewall",
-    page_icon="⚖",
+    page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="expanded"
 )

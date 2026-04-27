@@ -130,7 +130,7 @@ def render_gradual_blur(position='bottom', strength=2, height='6rem', divCount=5
   target.appendChild(container);
 })();
 """
-    _components.html("<script>" + js + "</script>", height=0)
+    st.iframe("<script>" + js + "</script>", height=1)
 
 
 
@@ -1284,10 +1284,23 @@ with st.sidebar:
     st.markdown("""
     <div style="padding: 1.2rem 1.2rem 0.5rem; border-bottom: 1px solid #1a1c28; margin-bottom: 0.5rem;">
         <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:32px;height:32px;background:linear-gradient(135deg,#6366f1,#818cf8);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 16px rgba(99,102,241,0.4);">⚖</div>
+            <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+                <svg width="36" height="36" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M100 20 L30 50 L30 110 C30 160 100 190 100 190 C100 190 170 160 170 110 L170 50 Z" fill="#0A2540" />
+                  <path d="M100 35 L45 60 L45 105 C45 145 100 170 100 170 C100 170 155 145 155 105 L155 60 Z" fill="none" stroke="#20C997" stroke-width="6" />
+                  <rect x="96" y="60" width="8" height="70" fill="#20C997" />
+                  <circle cx="100" cy="60" r="8" fill="#20C997" />
+                  <rect x="60" y="76" width="80" height="6" fill="#20C997" rx="3" />
+                  <polygon points="64,82 44,115 84,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M44 115 Q64 130 84 115 Z" fill="#20C997" />
+                  <polygon points="136,82 116,115 156,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M116 115 Q136 130 156 115 Z" fill="#20C997" />
+                  <rect x="75" y="130" width="50" height="8" fill="#20C997" rx="4" />
+                </svg>
+            </div>
             <div>
-                <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:#f0f1f5;letter-spacing:-0.3px;">EquiGuard</div>
-                <div style="font-size:9px;color:#6366f1;letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;">AI Bias Firewall</div>
+                <div class="eq-brand-name" style="font-size:18px; line-height: 1.2;">EquiGuard</div>
+                <div style="font-size:9px;color:#6366f1;letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-top:2px;">AI Bias Firewall</div>
             </div>
         </div>
     </div>
@@ -1328,8 +1341,8 @@ with st.sidebar:
 
     # Webhook status
     _wh_enabled = os.getenv("WEBHOOK_ENABLED", "false").lower() == "true"
-    _wh_color   = "#818cf8" if _wh_enabled else "#3a3d52"
-    _wh_label   = "● Enabled" if _wh_enabled else "● Disabled"
+    _wh_color   = "#4ade80" if _wh_enabled else "#3a3d52"
+    _wh_label   = "● Active" if _wh_enabled else "● Disabled"
 
     st.markdown(f"""
     <div style="padding: 0 8px;">
@@ -1355,15 +1368,20 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
+    _audit_pass = True
+    if st.session_state.get("audit_result"):
+        _audit_pass = st.session_state.audit_result.get("compliance_pass", True)
+
+    _footer_text = "v1.0.0 · EEOC Compliant" if _audit_pass else "v1.0.0 · EEOC Non-Compliant"
+    _footer_color = "#3a3d52" if _audit_pass else "#f87171"
+
+    st.markdown(f"""
     <div style="padding: 0.75rem 1.2rem; margin-top: 0.75rem; border-top: 1px solid #1a1c28;">
-        <div style="font-size:11px;color:#3a3d52;font-family:'DM Mono',monospace;">v1.0.0 · EEOC Compliant</div>
+        <div style="font-size:11px;color:{_footer_color};font-family:'DM Mono',monospace;">{_footer_text}</div>
     </div>
     """, unsafe_allow_html=True)
-
     # ── Global MagicBento Tracker ──
-    import streamlit.components.v1 as components
-    components.html("""
+    st.iframe("""
         <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
         <script>
             const parentDoc = window.parent.document;
@@ -1460,7 +1478,7 @@ with st.sidebar:
             }
             initTracker();
         </script>
-    """, height=0)
+    """, height=1)
 
 
 

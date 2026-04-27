@@ -86,34 +86,43 @@ def suggest_columns(df: pd.DataFrame) -> dict:
         "Return ONLY valid JSON. No markdown, no explanation outside the JSON."
     )
 
+    _fallback_models = ["gemini-3.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
     try:
         from google import genai as _genai
         _client = _genai.Client(api_key=gemini_key)
-        resp = _client.models.generate_content(
-            model="gemini-2.0-flash-lite",
-            contents=prompt,
-        )
-        raw = resp.text.strip()
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = "\n".join(raw.split("\n")[1:])
-        if raw.endswith("```"):
-            raw = raw.rsplit("```", 1)[0]
-        data = json.loads(raw)
+        for _model in _fallback_models:
+            try:
+                resp = _client.models.generate_content(
+                    model=_model,
+                    contents=prompt,
+                )
+                raw = resp.text.strip()
+                # Strip markdown fences if present
+                if raw.startswith("```"):
+                    raw = "\n".join(raw.split("\n")[1:])
+                if raw.endswith("```"):
+                    raw = raw.rsplit("```", 1)[0]
+                data = json.loads(raw)
 
-        # Validate that suggested columns actually exist
-        suggested_target    = data.get("target_col", columns[0])
-        suggested_protected = data.get("protected_col", columns[0])
-        if suggested_target not in columns:
-            suggested_target = columns[0]
-        if suggested_protected not in columns:
-            suggested_protected = columns[0]
+                # Validate that suggested columns actually exist
+                suggested_target    = data.get("target_col", columns[0])
+                suggested_protected = data.get("protected_col", columns[0])
+                if suggested_target not in columns:
+                    suggested_target = columns[0]
+                if suggested_protected not in columns:
+                    suggested_protected = columns[0]
 
-        return {
-            "target_col":       suggested_target,
-            "protected_col":    suggested_protected,
-            "target_reason":    data.get("target_reason", ""),
-            "protected_reason": data.get("protected_reason", ""),
-        }
+                return {
+                    "target_col":       suggested_target,
+                    "protected_col":    suggested_protected,
+                    "target_reason":    data.get("target_reason", ""),
+                    "protected_reason": data.get("protected_reason", ""),
+                }
+            except Exception as _e:
+                _err = str(_e)
+                if any(c in _err for c in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
+                    continue  # try next model
+                break  # non-quota error, stop trying
     except Exception:
-        return fallback
+        pass
+    return fallback

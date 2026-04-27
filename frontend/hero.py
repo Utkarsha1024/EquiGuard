@@ -6,7 +6,6 @@ GSAP for text entrance animations, and a Barba.js-style page-wipe
 transition into the dashboard when the user clicks "Launch".
 """
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 # Full self-contained HTML document rendered inside an iframe via components.html
@@ -353,11 +352,17 @@ html, body { width: 100%; height: 100%; }
             <div class="shield-ring"></div>
             <div class="shield-ring"></div>
             <div class="shield-ring"></div>
-            <svg class="shield-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" style="animation: shield-glow 2.5s ease-in-out infinite;">
-                <path d="M48 8L14 22V46C14 64.6 29.1 82.1 48 87C66.9 82.1 82 64.6 82 46V22L48 8Z" fill="rgba(83,74,183,0.15)" stroke="#534AB7" stroke-width="1.5"/>
-                <path d="M48 18L22 29V46C22 60.2 33.4 73.5 48 78C62.6 73.5 74 60.2 74 46V29L48 18Z" fill="rgba(83,74,183,0.1)" stroke="rgba(129,140,248,0.4)" stroke-width="0.8"/>
-                <path d="M36 48L44 56L60 40" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="48" cy="48" r="3" fill="#818cf8" opacity="0.4"/>
+            <svg class="shield-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="animation: shield-glow 2.5s ease-in-out infinite;">
+                <path d="M100 20 L30 50 L30 110 C30 160 100 190 100 190 C100 190 170 160 170 110 L170 50 Z" fill="#0A2540" />
+                <path d="M100 35 L45 60 L45 105 C45 145 100 170 100 170 C100 170 155 145 155 105 L155 60 Z" fill="none" stroke="#20C997" stroke-width="6" />
+                <rect x="96" y="60" width="8" height="70" fill="#20C997" />
+                <circle cx="100" cy="60" r="8" fill="#20C997" />
+                <rect x="60" y="76" width="80" height="6" fill="#20C997" rx="3" />
+                <polygon points="64,82 44,115 84,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                <path d="M44 115 Q64 130 84 115 Z" fill="#20C997" />
+                <polygon points="136,82 116,115 156,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                <path d="M116 115 Q136 130 156 115 Z" fill="#20C997" />
+                <rect x="75" y="130" width="50" height="8" fill="#20C997" rx="4" />
             </svg>
         </div>
 
@@ -800,4 +805,4 @@ def render_hero():
 
     # ── 3) Hero iframe ─────────────────────────────────────────────────────────────
     #    height=10000 allocates space; position:fixed CSS pins it to 100vh.
-    components.html(HERO_HTML, height=10000, scrolling=False)
+    st.iframe(HERO_HTML, height=10000)

@@ -140,31 +140,32 @@ def render_bias_leaderboard():
                     (function() {
                         try {
                             var doc = window.parent.document;
-                            var prevBtn = doc.getElementById('uv-prev-btn');
-                            if (prevBtn && !prevBtn.dataset.attached) {
-                                prevBtn.addEventListener('click', function() {
-                                    var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
-                                    var target = triggers.find(b => b.innerText.includes('HiddenPrev'));
-                                    if (target) target.click();
-                                });
-                                prevBtn.dataset.attached = 'true';
-                            }
-                            
-                            var nextBtn = doc.getElementById('uv-next-btn');
-                            if (nextBtn && !nextBtn.dataset.attached) {
-                                nextBtn.addEventListener('click', function() {
-                                    var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
-                                    var target = triggers.find(b => b.innerText.includes('HiddenNext'));
-                                    if (target) target.click();
-                                });
-                                nextBtn.dataset.attached = 'true';
-                            }
+                            setInterval(function() {
+                                var prevBtn = doc.getElementById('uv-prev-btn');
+                                if (prevBtn && !prevBtn.dataset.attached) {
+                                    prevBtn.addEventListener('click', function() {
+                                        var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
+                                        var target = triggers.find(b => b.innerText && b.innerText.includes('HiddenPrev'));
+                                        if (target) target.click();
+                                    });
+                                    prevBtn.dataset.attached = 'true';
+                                }
+                                
+                                var nextBtn = doc.getElementById('uv-next-btn');
+                                if (nextBtn && !nextBtn.dataset.attached) {
+                                    nextBtn.addEventListener('click', function() {
+                                        var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
+                                        var target = triggers.find(b => b.innerText && b.innerText.includes('HiddenNext'));
+                                        if (target) target.click();
+                                    });
+                                    nextBtn.dataset.attached = 'true';
+                                }
+                            }, 200);
                         } catch(e) {}
                     })();
                     </script>
                     """
-                    import streamlit.components.v1 as components
-                    components.html(js, height=0)
+                    st.iframe(js, height=1)
                             
                 st.markdown('</div>', unsafe_allow_html=True)
 

@@ -27,7 +27,15 @@ def render_comparison():
         "protected_col": st.session_state.get("protected_col", "race"),
     }
 
-    if st.button("⧡  Run Multi-Model Comparison", key="btn_compare", width="stretch"):
+    _clicked = st.button("⧡  Run Multi-Model Comparison", key="btn_compare", use_container_width=True)
+    
+    st.markdown("""
+    <div style="font-size:12px;color:#fbbf24;font-family:'Syne',sans-serif;text-align:center;margin-top:-10px;margin-bottom:15px;">
+        ⚠️ Caution: Training and auditing multiple models may take a long time.
+    </div>
+    """, unsafe_allow_html=True)
+
+    if _clicked:
         with st.spinner("Training 4 models and running EEOC audits…"):
             try:
                 resp = api_post("/audit/compare", _payload)
@@ -125,14 +133,16 @@ def render_comparison():
         height=380,
         xaxis=dict(
             title="Accuracy",
-            range=[0, 1.08],
+            autorange=True,
+            rangemode="tozero",
             tickfont=dict(color="#6b7280", size=11, family="DM Mono"),
             gridcolor="#1a1c28",
             zerolinecolor="#1a1c28",
         ),
         yaxis=dict(
             title="Fairness Ratio (EEOC)",
-            range=[0, 1.2],
+            autorange=True,
+            rangemode="tozero",
             tickfont=dict(color="#6b7280", size=11, family="DM Mono"),
             gridcolor="#1a1c28",
             zerolinecolor="#1a1c28",

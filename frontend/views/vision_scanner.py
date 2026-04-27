@@ -1,7 +1,6 @@
 import os
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -135,15 +134,16 @@ def render_vision_scanner():
                     <div class="uiverse-custom-file-upload">Drop image here or click</div>
                 </div>
             </div>
+            <div style="font-size:12px;color:#818cf8;margin-top:8px;text-align:center;font-family:'Syne',sans-serif;">PDF, JPG, PNG, JPEG</div>
             """, unsafe_allow_html=True)
 
             _vis_file = st.file_uploader(
-                "Upload image", type=["jpg", "jpeg", "png", "webp"],
+                "Upload image or PDF", type=["pdf", "jpg", "png", "jpeg"],
                 label_visibility="collapsed", key="vision_uploader"
             )
 
             # Sync hover state from invisible uploader to the Uiverse UI and overlay perfectly via negative margin
-            components.html("""
+            st.iframe("""
                 <script>
                     const parentDoc = window.parent.document;
                     function init() {
@@ -169,7 +169,7 @@ def render_vision_scanner():
                     }
                     init();
                 </script>
-            """, height=0)
+            """, height=1)
 
             if _vis_file is not None:
                 st.session_state.vision_image = _vis_file.getvalue()
@@ -178,7 +178,15 @@ def render_vision_scanner():
                 st.rerun()
 
         if st.session_state.vision_image is not None:
-            st.image(st.session_state.vision_image, use_container_width=True)
+            if st.session_state.vision_image_type == "application/pdf":
+                st.markdown(f"""
+                <div style="padding:1rem;background:#12141f;border:1px solid #1e2030;border-radius:12px;margin-bottom:1rem;display:flex;align-items:center;gap:12px;">
+                    <span style="font-size:24px;">📄</span>
+                    <div style="font-size:14px;color:#f0f1f5;font-family:'Syne',sans-serif;">{st.session_state.vision_image_name}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.image(st.session_state.vision_image, use_container_width=True)
 
             btn_col1, btn_col2 = st.columns([1, 1])
             with btn_col1:
@@ -208,7 +216,7 @@ def render_vision_scanner():
                     st.session_state.vision_result = None
                     st.rerun()
                 
-                components.html("""
+                st.iframe("""
                 <script>
                 (function applyDangerStyle() {
                     try {
@@ -232,7 +240,7 @@ def render_vision_scanner():
                     } catch(e) { }
                 })();
                 </script>
-                """, height=0)
+                """, height=1)
         else:
             st.markdown("""
             <div style="height:200px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">

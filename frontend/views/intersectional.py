@@ -104,8 +104,22 @@ def render_intersectional():
                 font=dict(color="#6b7280", family="DM Sans", size=12),
                 margin=dict(l=10, r=10, t=30, b=10),
                 height=max(260, len(features) * 36),
-                xaxis=dict(side="top", tickfont=dict(color="#c8cad4", size=12)),
-                yaxis=dict(tickfont=dict(color="#c8cad4", size=11), autorange="reversed"),
+                xaxis=dict(
+                    title=dict(
+                        text="Protected Attributes",
+                        font=dict(color="#818cf8", size=13, family="Syne")
+                    ),
+                    side="top", 
+                    tickfont=dict(color="#c8cad4", size=12)
+                ),
+                yaxis=dict(
+                    title=dict(
+                        text="Features",
+                        font=dict(color="#818cf8", size=13, family="Syne")
+                    ),
+                    tickfont=dict(color="#c8cad4", size=11), 
+                    autorange="reversed"
+                ),
             )
 
             st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -152,11 +166,11 @@ def render_intersectional():
 
                             _reply = None
                             _last_err = None
-                            # Retry up to 3 times with exponential back-off on 503
-                            for _attempt in range(3):
+                            _ix_models = ["gemini-3.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+                            for _ix_model in _ix_models:
                                 try:
                                     _chat = _client.chats.create(
-                                        model="gemini-2.0-flash-lite",
+                                        model=_ix_model,
                                         config=_gtypes.GenerateContentConfig(system_instruction=_sys_prompt)
                                     )
                                     _reply = _chat.send_message("Please summarize the proxy risks in this correlation table.").text
@@ -164,19 +178,17 @@ def render_intersectional():
                                 except Exception as _e:
                                     _last_err = _e
                                     _err_str = str(_e)
-                                    # Only retry on transient 503 / quota errors
-                                    if "503" in _err_str or "UNAVAILABLE" in _err_str or "429" in _err_str:
-                                        _wait = 2 ** (_attempt + 1)  # 2s, 4s, 8s
-                                        time.sleep(_wait)
+                                    if any(c in _err_str for c in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
+                                        continue  # try next model
                                     else:
-                                        break  # non-retryable — give up immediately
+                                        break  # non-retryable error
 
                             if _reply:
                                 st.session_state.ix_summary = _reply
                                 st.rerun()
                             else:
                                 _err_str = str(_last_err)
-                                if "503" in _err_str or "UNAVAILABLE" in _err_str:
+                                if any(c in _err_str for c in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
                                     st.warning(
                                         "⏳ Gemini is experiencing high demand right now. "
                                         "Please wait a moment and click **✨ Generate AI Summary** again."

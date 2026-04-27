@@ -211,7 +211,8 @@ def render_bias_drift(history_data: list):
             tickfont=dict(color="#3a3d52", size=10, family="DM Mono"),
         ),
         yaxis=dict(
-            range=[0, max_y],
+            autorange=True,
+            rangemode="tozero",
             gridcolor="#1a1c28",
             showline=False,
             zeroline=False,
@@ -289,4 +290,4 @@ def render_uiverse_download(file_bytes, file_name, mime_type, label="Download", 
     }})();
     </script>
     """
-    st.components.v1.html(js, height=0)
+    st.iframe(js, height=1)

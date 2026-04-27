@@ -3,7 +3,7 @@ from functools import lru_cache
 from dotenv import load_dotenv
 
 # Load environment variables from .env
-load_dotenv()
+load_dotenv(override=True)
 
 @lru_cache()
 def get_settings():

@@ -13,7 +13,20 @@ def render_dashboard():
     st.markdown("""
     <div class="eq-header">
         <div class="eq-brand">
-            <div class="eq-logo">⚖</div>
+            <div class="eq-logo" style="background:transparent;box-shadow:none;">
+                <svg width="40" height="40" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M100 20 L30 50 L30 110 C30 160 100 190 100 190 C100 190 170 160 170 110 L170 50 Z" fill="#0A2540" />
+                  <path d="M100 35 L45 60 L45 105 C45 145 100 170 100 170 C100 170 155 145 155 105 L155 60 Z" fill="none" stroke="#20C997" stroke-width="6" />
+                  <rect x="96" y="60" width="8" height="70" fill="#20C997" />
+                  <circle cx="100" cy="60" r="8" fill="#20C997" />
+                  <rect x="60" y="76" width="80" height="6" fill="#20C997" rx="3" />
+                  <polygon points="64,82 44,115 84,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M44 115 Q64 130 84 115 Z" fill="#20C997" />
+                  <polygon points="136,82 116,115 156,115" fill="none" stroke="#20C997" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M116 115 Q136 130 156 115 Z" fill="#20C997" />
+                  <rect x="75" y="130" width="50" height="8" fill="#20C997" rx="4" />
+                </svg>
+            </div>
             <div>
                 <div class="eq-brand-name">EquiGuard</div>
                 <div class="eq-brand-tag">AI Bias Firewall · EEOC Compliance Suite</div>
@@ -311,7 +324,7 @@ def render_dashboard():
           } catch(e) {}
         })();
         </script>
-        """, height=0)
+        """, height=1)
         
         if _send_clicked and _user_input.strip():
             st.session_state.chat_history.append({"role": "user", "content": _user_input})
@@ -339,12 +352,24 @@ def render_dashboard():
                         for _m in st.session_state.chat_history[:-1]:
                             _role = "model" if _m["role"] == "assistant" else "user"
                             _gemini_hist.append(_gtypes.Content(role=_role, parts=[_gtypes.Part(text=_m["content"])]))
-                        _chat_session = _client.chats.create(
-                            model="gemini-2.0-flash-lite",
-                            config=_gtypes.GenerateContentConfig(system_instruction=_sys),
-                            history=_gemini_hist,
-                        )
-                        _reply = _chat_session.send_message(_user_input).text
+                        _reply = None
+                        _agent_models = ["gemini-3.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+                        for _am in _agent_models:
+                            try:
+                                _chat_session = _client.chats.create(
+                                    model=_am,
+                                    config=_gtypes.GenerateContentConfig(system_instruction=_sys),
+                                    history=_gemini_hist,
+                                )
+                                _reply = _chat_session.send_message(_user_input).text
+                                break
+                            except Exception as _me:
+                                _ms = str(_me)
+                                if any(c in _ms for c in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
+                                    continue
+                                raise
+                        if _reply is None:
+                            raise Exception("All Gemini models exhausted quota. Please enable billing at console.cloud.google.com/billing")
                         st.markdown(_reply)
                         st.session_state.chat_history.append({"role": "assistant", "content": _reply})
                         st.session_state.agent_input_key += 1

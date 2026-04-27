@@ -354,39 +354,30 @@ def audit_preflight(payload: dict = None):
     gemini_key = settings.get("gemini_api_key", "")
 
     if gemini_key:
-        try:
-            from google import genai as _genai_sdk
-            _client = _genai_sdk.Client(api_key=gemini_key)
-
-            prompt = (
-                "You are an AI data quality and bias detection expert. "
-                "Analyse the following dataset column statistics and return a JSON object with this exact schema:\n\n"
-                "{\n"
-                '  "overall_risk": "LOW"|"MEDIUM"|"HIGH"|"CRITICAL",\n'
-                '  "high_risk_columns": ["col1", "col2"],\n'
-                '  "proxy_candidates": ["col3"],\n'
-                '  "summary": "2-3 sentence plain-English summary of risks"\n'
-                "}\n\n"
-                "Column statistics:\n" + json.dumps(col_stats, indent=2) + "\n\n"
-                "Return ONLY valid JSON. No markdown, no explanation outside the JSON."
-            )
-            resp = _client.models.generate_content(
-                model="gemini-2.0-flash-lite",
-                contents=prompt,
-            )
-            raw = resp.text.strip()
-            # Strip markdown code fences if present
-            if raw.startswith("```"):
-                raw = "\n".join(raw.split("\n")[1:])
-            if raw.endswith("```"):
-                raw = raw.rsplit("```", 1)[0]
-            data = json.loads(raw)
-            data["engine"] = "gemini-2.0-flash-lite"
-            data["columns_checked"] = len(df.columns)
-            data["rows_sampled"]    = len(df)
-            return data
-        except Exception:
-            pass  # Fall through to heuristic
+        from google import genai as _genai_sdk
+        _client = _genai_sdk.Client(api_key=gemini_key)
+        _fallback_models = ["gemini-3.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+        for _model in _fallback_models:
+            try:
+                resp = _client.models.generate_content(
+                    model=_model,
+                    contents=prompt,
+                )
+                raw = resp.text.strip()
+                if raw.startswith("```"):
+                    raw = "\n".join(raw.split("\n")[1:])
+                if raw.endswith("```"):
+                    raw = raw.rsplit("```", 1)[0]
+                data = json.loads(raw)
+                data["engine"] = _model
+                data["columns_checked"] = len(df.columns)
+                data["rows_sampled"]    = len(df)
+                return data
+            except Exception as _e:
+                _err = str(_e)
+                if any(c in _err for c in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
+                    continue  # try next model
+                break  # non-quota error, give up
 
     # Heuristic fallback
     high_risk   = [c for c in df.columns if any(w in c.lower() for w in _PROXY_WORDS)]

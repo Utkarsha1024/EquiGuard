@@ -1,6 +1,5 @@
 import os
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -97,7 +96,7 @@ def render_audit_engine():
 
             # Style the Remove button red via JS — the only reliable approach.
             # Uses window.parent.document (same-origin) to find and style the button.
-            components.html("""
+            st.iframe("""
             <script>
             (function applyDangerStyle() {
                 try {
@@ -124,7 +123,7 @@ def render_audit_engine():
                 } catch(e) { /* cross-origin guard */ }
             })();
             </script>
-            """, height=0)
+            """, height=1)
 
         else:
             st.markdown("""
@@ -154,6 +153,12 @@ def render_audit_engine():
                 transition: transform var(--transition) ease;
             }
             .uiverse-container-audit.is-hovered .uiverse-folder-audit { transform: scale(1.05); }
+
+            @keyframes float {
+                0%   { transform: translateY(0px); }
+                50%  { transform: translateY(-20px); }
+                100% { transform: translateY(0px); }
+            }
 
             .uiverse-folder-audit .front-side, .uiverse-folder-audit .back-side {
                 position: absolute;
@@ -211,14 +216,14 @@ def render_audit_engine():
                         <div class="front-side"><div class="tip"></div><div class="cover"></div></div>
                         <div class="back-side cover"></div>
                     </div>
-                    <div class="uiverse-custom-file-upload-audit">Drop dataset (CSV) here or click</div>
+                    <div class="uiverse-custom-file-upload-audit">Drop dataset here or click</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            uploaded_file = st.file_uploader("Upload Dataset (CSV)", type=["csv"], label_visibility="collapsed")
+            uploaded_file = st.file_uploader("Upload Dataset", type=["txt", "csv", "xlsx"], label_visibility="collapsed")
 
-            components.html("""
+            st.iframe("""
                 <script>
                     const parentDoc = window.parent.document;
                     function init() {
@@ -244,10 +249,22 @@ def render_audit_engine():
                     }
                     init();
                 </script>
-            """, height=0)
+            """, height=1)
             
             if uploaded_file is not None:
-                df = pd.read_csv(uploaded_file, sep=None, engine='python')
+                if uploaded_file.name.endswith(".xlsx"):
+                    st.error("⚠️ Excel format (.xlsx) requires 'openpyxl' to be installed. Please upload your dataset as a CSV.")
+                    st.stop()
+                
+                try:
+                    df = pd.read_csv(uploaded_file, sep=None, engine='python')
+                except UnicodeDecodeError:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin1')
+                except Exception as e:
+                    st.error(f"Error reading dataset: {e}")
+                    st.stop()
+                    
                 df.to_csv("data/uploaded_data.csv", index=False)
                 st.session_state.data_path = "data/uploaded_data.csv"
                 st.session_state.uploaded_file_name = uploaded_file.name
@@ -258,6 +275,7 @@ def render_audit_engine():
                 st.rerun()
             else:
                 st.markdown("""
+                <div style="font-size:12px;color:#818cf8;margin-bottom:8px;font-family:'Syne',sans-serif;">TXT, CSV, XLSX</div>
                 <div class="info-chip">◌ Using default: data/golden_demo_dataset.csv</div>
                 """, unsafe_allow_html=True)
                 st.session_state.data_path = "data/golden_demo_dataset.csv"

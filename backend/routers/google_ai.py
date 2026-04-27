@@ -13,6 +13,29 @@ router = APIRouter(tags=["Google AI"])
 _gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
 _genai_client = genai.Client(api_key=_gemini_key) if _gemini_key else None
 
+# ── Model fallback chain (tried in order on quota/404 errors) ────────────────
+_GEMINI_MODELS = [
+    "gemini-3.0-flash",
+    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+]
+
+def _generate_with_fallback(client, contents, config=None):
+    """Try each model in _GEMINI_MODELS until one succeeds. Returns (response, model_name)."""
+    last_err = None
+    for model in _GEMINI_MODELS:
+        try:
+            resp = client.models.generate_content(model=model, contents=contents, config=config)
+            return resp, model
+        except Exception as e:
+            last_err = e
+            err_str = str(e)
+            if any(code in err_str for code in ("429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "503", "UNAVAILABLE")):
+                continue  # try next model
+            raise  # non-quota error — propagate immediately
+    raise last_err
+
 
 @router.post("/audit/narrative", dependencies=[Depends(require_api_key)])
 def audit_narrative(payload: dict):
@@ -51,11 +74,8 @@ def audit_narrative(payload: dict):
             "Keep total response under 250 words."
         )
         try:
-            response = _genai_client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=prompt,
-            )
-            return {"narrative": response.text, "model": "gemini-3-flash-preview"}
+            response, used_model = _generate_with_fallback(_genai_client, prompt)
+            return {"narrative": response.text, "model": used_model}
         except Exception:
             pass  # fall through to template
 
@@ -73,9 +93,8 @@ SENSITIVE_LABELS = {
 }
 
 DEMOGRAPHIC_KEYWORDS = {
-    "race", "gender", "sex", "ethnicity", "nationality",
-    "religion", "age", "dob", "date", "of", "birth", "born",
-    "male", "female", "mr", "mrs", "ms",
+    "race", "ethnicity", "nationality", "religion",
+    "date of birth", "dob", "national origin",
 }
 
 @router.post("/audit/vision")
@@ -94,38 +113,141 @@ async def audit_vision(request: Request, file: UploadFile = File(...)):
 
     try:
         content = await file.read()
-        img = Image.open(io.BytesIO(content))
+        mime_type = file.content_type
+        
+        from google.genai import types
+        doc_part = types.Part.from_bytes(data=content, mime_type=mime_type)
 
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
-        prompt = "Does this image contain a human face or demographic info? Reply exactly 'CRITICAL' if yes, or 'PASS' if no."
-        response = client.models.generate_content(
-            model='gemini-3-flash-preview',
-            contents=[prompt, img]
+        prompt = (
+            "You are a privacy and bias risk expert analyzing an image for demographic data leakage. "
+            "Examine the image carefully and return ONLY a valid JSON object with this exact schema:\n\n"
+            "{\n"
+            '  "face_photo_detected": true/false,  // ONLY true if there is an actual PHOTOGRAPH of a human face (headshot, selfie, ID card photo, profile picture). Signatures, names, and text are NOT faces.\n'
+            '  "sensitive_demographic_text": true/false,  // true ONLY if the image contains explicit sensitive attributes like RACE, ETHNICITY, RELIGION, NATIONAL ORIGIN, or DATE OF BIRTH as labeled data fields. Person names and job titles alone do NOT count.\n'
+            '  "id_document_detected": true/false,  // true if this looks like a government ID, passport, or driver license with a photo\n'
+            '  "has_signatures": true/false,  // true if the image contains handwritten signatures\n'
+            '  "flagged_items": ["list of specific items flagged"],  // empty list if nothing found\n'
+            '  "description": "one sentence describing what you see in the image",\n'
+            '  "risk_level": "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"  // CRITICAL if face/ID. HIGH if sensitive text. MEDIUM if generic items. LOW if safe.\n'
+            "}\n\n"
+            "IMPORTANT RULES:\n"
+            "- A certificate of participation with names and signatures is LOW risk — it has no face photo.\n"
+            "- A resume with a headshot photo is CRITICAL risk.\n"
+            "- An Aadhaar card, passport, or ID with a face photo is CRITICAL risk.\n"
+            "- A document with only names, titles, logos, and text is LOW risk.\n"
+            "Return ONLY valid JSON. No markdown, no explanation."
         )
 
-        risk = "CRITICAL" if "CRITICAL" in response.text.upper() else "LOW"
-        faces = 1 if risk == "CRITICAL" else 0
+        import json as _json
+        response, _vision_model = _generate_with_fallback(
+            client, 
+            [prompt, doc_part],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json"
+            )
+        )
 
-        compliance_warning = (
-            "This image contains detectable protected attributes. Using images of this type as inputs "
-            "to automated hiring or scoring systems may violate GDPR Article 9 and EEOC guidelines."
-            if risk == "CRITICAL" else
-            "No significant protected attributes detected. Standard data minimisation practices apply."
-        )
-        recommendation = (
-            "Manual review required for demographic filtering."
-            if risk == "CRITICAL" else "Clear for automated processing."
-        )
+        # Parse structured response
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+        if raw.endswith("```"):
+            raw = raw.rsplit("```", 1)[0]
+
+        try:
+            parsed = _json.loads(raw)
+        except Exception:
+            # If JSON parse fails, fall back to keyword detection
+            parsed = {
+                "face_photo_detected": "CRITICAL" in raw.upper(),
+                "sensitive_demographic_text": False,
+                "id_document_detected": False,
+                "has_signatures": False,
+                "flagged_items": [],
+                "description": "Could not parse structured response.",
+                "risk_level": "CRITICAL" if "CRITICAL" in raw.upper() else "LOW",
+            }
+
+        risk          = parsed.get("risk_level", "LOW")
+        face_detected = parsed.get("face_photo_detected", False)
+        id_detected   = parsed.get("id_document_detected", False)
+        demo_text     = parsed.get("sensitive_demographic_text", False)
+        flagged_items = parsed.get("flagged_items", [])
+        description   = parsed.get("description", "")
+        has_sigs      = parsed.get("has_signatures", False)
+
+        # Compute risk score deterministically but with variability based on findings
+        if face_detected or id_detected:
+            base_score = 80
+        elif demo_text:
+            base_score = 50
+        elif flagged_items:
+            base_score = 25
+        elif has_sigs:
+            base_score = 10
+        else:
+            base_score = 5
+
+        # Add variability based on the number of flagged items (up to +15)
+        item_penalty = min(len(flagged_items) * 4, 15)
+        
+        # Add slight variability based on the description length to reflect image complexity (up to +5)
+        complexity_penalty = min(len(description) // 20, 5)
+
+        risk_score = min(base_score + item_penalty + complexity_penalty, 100)
+
+        # Strictly map risk_level to the 0-100 gauge thresholds so UI colors perfectly match
+        if risk_score >= 70:
+            risk = "CRITICAL"
+        elif risk_score >= 40:
+            risk = "HIGH"
+        elif risk_score >= 20:
+            risk = "MEDIUM"
+        else:
+            risk = "LOW"
+
+        faces_count = 1 if (face_detected or id_detected) else 0
+
+        flagged_labels = []
+        if face_detected:
+            flagged_labels.append("Face Photograph Detected")
+        if id_detected:
+            flagged_labels.append("ID Document Detected")
+        flagged_labels += flagged_items
+
+        flagged_text = []
+        if demo_text:
+            flagged_text.append("Sensitive Demographic Text")
+
+        if risk in ("CRITICAL", "HIGH"):
+            compliance_warning = (
+                "This image contains detectable protected attributes. Using images of this type as inputs "
+                "to automated hiring or scoring systems may violate GDPR Article 9 and EEOC guidelines."
+            )
+            recommendation = (
+                f"This image appears to contain {'a face photograph or ID document' if face_detected or id_detected else 'sensitive demographic text'}. "
+                "Manual review and demographic filtering required before use in any automated system."
+            )
+        else:
+            compliance_warning = "No significant protected attributes detected. Standard data minimisation practices apply."
+            recommendation = (
+                f"{description} This document contains names/text but no face photographs. "
+                "Safe for automated processing with standard privacy controls."
+            )
 
         return {
-            "risk_level": risk,
-            "risk_score": 95 if risk == "CRITICAL" else 10,
-            "faces_detected": faces,
-            "flagged_labels": ["Human Face/Demographic Detected"] if risk == "CRITICAL" else [],
-            "flagged_text": [],
-            "recommendation": recommendation,
-            "compliance_warning": compliance_warning
+            "risk_level":          risk,
+            "risk_score":          risk_score,
+            "faces_detected":      faces_count,
+            "flagged_labels":      flagged_labels,
+            "flagged_text":        flagged_text,
+            "recommendation":      recommendation,
+            "compliance_warning":  compliance_warning,
+            "description":         description,
+            "model":               _vision_model,
         }
     except Exception as e:
         return {
@@ -276,26 +398,17 @@ def audit_remediate(payload: dict):
 
     _last_error = None
     if _genai_client:
-        for attempt in range(3):                         # up to 3 attempts
-            try:
-                response = _genai_client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=prompt,
-                )
-                return {
-                    "mitigation_code":  response.text,
-                    "model":            "gemini-2.0-flash",
-                    "zero_retention":   False,
-                    "note":             "Generated by Gemini — Powered by Google AI",
-                    "error":            None,
-                }
-            except Exception as e:
-                _last_error = str(e)
-                if "429" in _last_error or "RESOURCE_EXHAUSTED" in _last_error:
-                    wait = 2 ** attempt          # 1s, 2s, 4s
-                    time.sleep(wait)
-                    continue                      # retry
-                break                            # non-rate-limit error — don't retry
+        try:
+            response, used_model = _generate_with_fallback(_genai_client, prompt)
+            return {
+                "mitigation_code":  response.text,
+                "model":            used_model,
+                "zero_retention":   False,
+                "note":             f"Generated by Gemini ({used_model}) — Powered by Google AI",
+                "error":            None,
+            }
+        except Exception as e:
+            _last_error = str(e)
 
     # Fallback template (rate-limited or no key)
     code = _REMEDIATE_FALLBACK_TEMPLATE.format(

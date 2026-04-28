@@ -114,8 +114,8 @@ When `compliance_pass: false`, the compliance endpoint fires `fire_audit_alert()
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                       Streamlit Frontend · port 8501                │
-│  🏠 Dashboard  ⚙️ Audit Engine  📊 Bias Leaderboard                │
-│  ⧡ Model Compare  ⬢ Intersectional  ◎ Vision Scanner               │
+│  🏠 Dashboard  ⚙️ Audit Engine  📊 Bias Leaderboard                  │
+│  ⧡ Model Compare  ⬢ Intersectional  ◎ Vision Scanner                │
 └────────────────────────────┬────────────────────────────────────────┘
                              │  HTTP · X-API-Key header
 ┌────────────────────────────▼────────────────────────────────────────┐

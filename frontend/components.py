@@ -234,24 +234,39 @@ def render_bias_drift(history_data: list):
 # ── Uiverse Download Button ──────────────────────────────────────────────────
 def render_uiverse_download(file_bytes, file_name, mime_type, label="Download", completed_label="Open"):
     """
-    Renders a custom Uiverse download checkbox component wrapped in an HTML <a> tag
-    containing the file data as a Base64 URI.
+    Renders the Uiverse animated download button with a transparent st.download_button
+    overlaid on top via CSS :has() — so the animation shows AND the download works.
     """
-    import base64
     import streamlit as st
-    
-    b64 = base64.b64encode(file_bytes).decode()
-    href = f"data:{mime_type};base64,{b64}"
-    
-    # We assign a unique ID to the input so clicking the label toggles it.
     import uuid
+
     uid = str(uuid.uuid4())[:8]
-    
-    html = f"""
-    <div style="display:flex; justify-content:center; margin-bottom: 8px; width: 100%;">
-        <a href="{href}" download="{file_name}" style="display: none;" id="dl-link-{uid}"></a>
+
+    # Single markdown block: Uiverse HTML + scoped CSS that overlays the NEXT download button
+    st.markdown(f"""
+    <style>
+    /* Move the stElementContainer that immediately follows our wrap UP over the Uiverse visual */
+    .stElementContainer:has(#uv-dl-wrap-{uid}) + .stElementContainer [data-testid="stDownloadButton"],
+    .stElementContainer:has(#uv-dl-wrap-{uid}) + div [data-testid="stDownloadButton"] {{
+        margin-top: -72px !important;
+        position: relative !important;
+        z-index: 10 !important;
+    }}
+    /* Make only the button itself transparent so Uiverse shows through */
+    .stElementContainer:has(#uv-dl-wrap-{uid}) + .stElementContainer [data-testid="stDownloadButton"] > button,
+    .stElementContainer:has(#uv-dl-wrap-{uid}) + div [data-testid="stDownloadButton"] > button {{
+        opacity: 0 !important;
+        height: 57px !important;
+        width: 100% !important;
+        cursor: pointer !important;
+        background: transparent !important;
+        border: none !important;
+    }}
+    </style>
+
+    <div id="uv-dl-wrap-{uid}" style="display:flex; justify-content:center; margin-bottom:8px; width:100%;">
         <div class="uv-dl-container">
-          <label class="uv-dl-label" id="uv-label-{uid}" for="uv-dl-{uid}">
+          <label class="uv-dl-label" for="uv-dl-{uid}">
             <input type="checkbox" id="uv-dl-{uid}" class="uv-dl-input" />
             <span class="uv-dl-circle">
               <svg class="uv-dl-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -264,29 +279,45 @@ def render_uiverse_download(file_bytes, file_name, mime_type, label="Download", 
           </label>
         </div>
     </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-    
-    js = f"""
+    """, unsafe_allow_html=True)
+
+    # Download button rendered IMMEDIATELY after — CSS above moves it on top of the Uiverse HTML
+    st.download_button(
+        label=label,
+        data=file_bytes,
+        file_name=file_name,
+        mime=mime_type,
+        use_container_width=True,
+        key=f"dl-btn-{uid}",
+    )
+
+    # Trigger checkbox animation when the (invisible) download button is clicked
+    st.iframe(f"""
     <script>
     (function() {{
         try {{
             var doc = window.parent.document;
-            var input = doc.getElementById('uv-dl-{uid}');
-            var link = doc.getElementById('dl-link-{uid}');
-            if (input && link) {{
-                // Ensure we don't attach multiple listeners on hot-reloads
-                if (!input.dataset.dlAttached) {{
-                    input.addEventListener('change', function(e) {{
-                        if (this.checked) {{
-                            setTimeout(() => {{ link.click(); }}, 150);
-                        }}
+            function init() {{
+                var checkbox = doc.getElementById('uv-dl-{uid}');
+                var wrap = doc.getElementById('uv-dl-wrap-{uid}');
+                if (!checkbox || !wrap) {{ setTimeout(init, 100); return; }}
+                // The download button is the next stElementContainer after wrap's parent
+                var wrapEl = wrap.closest('.stElementContainer') || wrap.parentElement;
+                var next = wrapEl ? wrapEl.nextElementSibling : null;
+                if (!next) {{ setTimeout(init, 100); return; }}
+                var btn = next.querySelector('[data-testid="stDownloadButton"] button');
+                if (!btn) {{ setTimeout(init, 100); return; }}
+                if (!btn.dataset.uvAnim) {{
+                    btn.addEventListener('click', function() {{
+                        if (!checkbox.checked) checkbox.click();
                     }});
-                    input.dataset.dlAttached = 'true';
+                    btn.dataset.uvAnim = '1';
                 }}
             }}
+            init();
         }} catch(e) {{}}
     }})();
     </script>
-    """
-    st.iframe(js, height=1)
+    """, height=1)
+
+

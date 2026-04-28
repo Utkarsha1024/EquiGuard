@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from frontend.utils import api_get, api_post, get_kpi_values, suggest_columns
-from frontend.components import render_fairness_gauge, render_shap_waterfall, render_bias_drift
+from frontend.components import render_fairness_gauge, render_shap_waterfall, render_bias_drift, render_uiverse_download
 import json
 
 
@@ -463,13 +463,12 @@ def render_audit_engine():
                     pass  # stays None — button will render disabled
     
             if st.session_state.report_bytes:
-                st.download_button(
-                    label="↓  Download Executive Report (PDF)",
-                    data=st.session_state.report_bytes,
+                render_uiverse_download(
+                    file_bytes=st.session_state.report_bytes,
                     file_name="EquiGuard_Executive_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="dl_report_btn",
+                    mime_type="application/pdf",
+                    label="Executive Report",
+                    completed_label="Downloaded",
                 )
             else:
                 st.button("↓  Export Executive Report (PDF)", disabled=True,
@@ -495,13 +494,12 @@ def render_audit_engine():
     
                 st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
                 if st.session_state.cert_bytes:
-                    st.download_button(
-                        label="⬡  Download EEOC Compliance Certificate",
-                        data=st.session_state.cert_bytes,
+                    render_uiverse_download(
+                        file_bytes=st.session_state.cert_bytes,
                         file_name="EquiGuard_EEOC_Certificate.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="dl_cert_btn",
+                        mime_type="application/pdf",
+                        label="Compliance Cert",
+                        completed_label="Downloaded",
                     )
                 else:
                     st.button("⬡  Download EEOC Compliance Certificate",
@@ -521,13 +519,12 @@ def render_audit_engine():
     
                 st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
                 if st.session_state.pkg_bytes:
-                    st.download_button(
-                        label="↓  Download Regulatory Package (ZIP)",
-                        data=st.session_state.pkg_bytes,
+                    render_uiverse_download(
+                        file_bytes=st.session_state.pkg_bytes,
                         file_name="EquiGuard_Regulatory_Package.zip",
-                        mime="application/zip",
-                        use_container_width=True,
-                        key="dl_pkg_btn",
+                        mime_type="application/zip",
+                        label="Regulatory ZIP",
+                        completed_label="Downloaded",
                     )
                 else:
                     st.button("↓  Download Regulatory Package (ZIP)", disabled=True,

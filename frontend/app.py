@@ -212,34 +212,80 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ── Mobile Warning Banner ──────────────────────────────────────────────────────
-st.markdown("""
-<style>
-.mobile-warning { display: none; }
+# ── Mobile Warning Banner (fullscreen overlay, dismissable) ───────────────────
+st.iframe("""
+<script>
+(function() {
+    // Only show on mobile screens and only if not already dismissed this session
+    if (window.innerWidth > 768) return;
+    if (sessionStorage.getItem('eq_mobile_dismissed')) return;
 
-@media (max-width: 768px) {
-    .mobile-warning {
-        display: block;
-        background: rgba(251, 191, 36, 0.1);
-        border: 1px solid #fbbf24;
-        color: #fbbf24;
-        padding: 15px;
-        text-align: center;
-        border-radius: 10px;
-        margin: 10px;
-        font-family: 'Syne', sans-serif;
-        font-weight: 600;
-        z-index: 99999;
+    var doc = window.parent.document;
+    if (doc.getElementById('eq-mobile-overlay')) return;
+
+    var overlay = doc.createElement('div');
+    overlay.id = 'eq-mobile-overlay';
+    overlay.style.cssText = [
+        'position:fixed',
+        'top:0', 'left:0', 'right:0', 'bottom:0',
+        'background:rgba(5,6,9,0.92)',
+        'z-index:999999',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'padding:24px',
+        'backdrop-filter:blur(6px)',
+        '-webkit-backdrop-filter:blur(6px)',
+        'font-family:Syne,sans-serif'
+    ].join(';');
+
+    overlay.innerHTML = [
+        '<div style="background:#0d0e18;border:1px solid #fbbf24;border-radius:16px;',
+        'padding:32px 24px;max-width:360px;width:100%;text-align:center;',
+        'box-shadow:0 0 60px rgba(251,191,36,0.15);position:relative;">',
+
+        // Close button
+        '<button id="eq-mobile-close" style="position:absolute;top:12px;right:14px;',
+        'background:none;border:none;color:#fbbf24;font-size:22px;cursor:pointer;',
+        'line-height:1;font-family:sans-serif;">✕</button>',
+
+        // Icon
+        '<div style="font-size:48px;margin-bottom:16px;">⚠️</div>',
+
+        // Heading
+        '<div style="font-size:18px;font-weight:700;color:#fbbf24;margin-bottom:12px;">',
+        'Mobile View Detected</div>',
+
+        // Body
+        '<div style="font-size:13px;color:#c8cad4;line-height:1.7;margin-bottom:24px;">',
+        "EquiGuard's compliance charts and data matrices are highly detailed.<br>",
+        'For the best auditing experience, please open this on a <strong style="color:#f0f1f5;">desktop or laptop</strong>.',
+        '</div>',
+
+        // Dismiss button
+        '<button id="eq-mobile-btn" style="background:linear-gradient(135deg,#fbbf24,#f59e0b);',
+        'border:none;border-radius:8px;padding:10px 24px;color:#0d0e18;',
+        'font-weight:700;font-size:13px;cursor:pointer;width:100%;',
+        'font-family:Syne,sans-serif;">I Understand — Continue Anyway</button>',
+
+        '</div>'
+    ].join('');
+
+    doc.body.appendChild(overlay);
+
+    function dismiss() {
+        sessionStorage.setItem('eq_mobile_dismissed', '1');
+        var el = doc.getElementById('eq-mobile-overlay');
+        if (el) el.remove();
     }
-}
-</style>
 
-<div class="mobile-warning">
-    ⚠️ <b>Mobile View Detected</b><br><br>
-    EquiGuard's compliance charts and data matrices are highly detailed.
-    For the optimal auditing experience, please open this application on a desktop or laptop.
-</div>
-""", unsafe_allow_html=True)
+    doc.getElementById('eq-mobile-btn').addEventListener('click', dismiss);
+    doc.getElementById('eq-mobile-close').addEventListener('click', dismiss);
+})();
+</script>
+""", height=1)
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 # ── Master CSS ─────────────────────────────────────────────────────────────────
 

@@ -196,7 +196,7 @@ def render_bias_drift(history_data: list):
         line_width=0,
     )
 
-    max_y = max(1.05, df["fairness_ratio"].max() * 1.1)
+    max_y = min(1.05, df["fairness_ratio"].max() * 1.03)
 
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
@@ -211,8 +211,7 @@ def render_bias_drift(history_data: list):
             tickfont=dict(color="#3a3d52", size=10, family="DM Mono"),
         ),
         yaxis=dict(
-            autorange=True,
-            rangemode="tozero",
+            range=[0, max_y],
             gridcolor="#1a1c28",
             showline=False,
             zeroline=False,

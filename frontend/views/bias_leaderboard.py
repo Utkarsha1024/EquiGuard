@@ -87,85 +87,57 @@ def render_bias_leaderboard():
                 # Pagination controls
                 if total_pages > 1:
                     st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
-                    
-                    # Globally hide primary buttons on this page
-                    st.markdown('<style>div[data-testid="stButton"] > button[kind="primary"] { display: none !important; }</style>', unsafe_allow_html=True)
-                    
+
+                    # Style native Streamlit buttons to look like the custom nav buttons
+                    st.markdown("""
+                    <style>
+                    div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+                        background: #0d0e18 !important;
+                        border: 1px solid #2a2d40 !important;
+                        color: #818cf8 !important;
+                        border-radius: 10px !important;
+                        font-family: 'DM Mono', monospace !important;
+                        font-size: 12px !important;
+                        font-weight: 500 !important;
+                        padding: 8px 18px !important;
+                        width: 100% !important;
+                        letter-spacing: 0.5px !important;
+                        transition: all 0.2s ease !important;
+                    }
+                    div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button:hover {
+                        background: rgba(99,102,241,0.1) !important;
+                        border-color: #6366f1 !important;
+                        color: #c7d2fe !important;
+                        box-shadow: 0 0 16px rgba(99,102,241,0.2) !important;
+                    }
+                    div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button:disabled {
+                        opacity: 0.25 !important;
+                        cursor: not-allowed !important;
+                        box-shadow: none !important;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+
                     col_prev, col_page, col_next = st.columns([1, 2, 1])
-                    
+
                     with col_prev:
-                        if page > 1:
-                            st.markdown(f"""
-                            <div class="uv-nav-btn prev" id="uv-prev-btn">
-                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
-                                <span class="uv-nav-text">Previous</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            if st.button("HiddenPrev", type="primary", key="btn_prev_history"):
-                                st.session_state.history_page -= 1
-                                st.rerun()
-                        else:
-                            st.markdown(f"""
-                            <div class="uv-nav-btn prev" style="opacity:0.3; cursor:not-allowed; border-color:#1e2030; background-color:#1e2030; box-shadow:none;">
-                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
-                                <span class="uv-nav-text" style="color:#6b7280;">Previous</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
+                        if st.button("← Previous", key="btn_prev_history", disabled=(page <= 1)):
+                            st.session_state.history_page -= 1
+                            st.rerun()
+
                     with col_page:
-                        st.markdown(f"<div style='text-align:center;color:#4b5280;font-size:12px;padding-top:10px;font-family:\"DM Mono\",monospace;'>Page {page} of {total_pages}</div>", unsafe_allow_html=True)
-                        
+                        st.markdown(
+                            f"<div style='text-align:center;color:#4b5280;font-size:12px;"
+                            f"padding-top:10px;font-family:\"DM Mono\",monospace;'>"
+                            f"Page {page} of {total_pages}</div>",
+                            unsafe_allow_html=True,
+                        )
+
                     with col_next:
-                        if page < total_pages:
-                            st.markdown(f"""
-                            <div class="uv-nav-btn next" id="uv-next-btn" style="flex-direction:row-reverse; justify-content:flex-end;">
-                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
-                                <span class="uv-nav-text">Next</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            if st.button("HiddenNext", type="primary", key="btn_next_history"):
-                                st.session_state.history_page += 1
-                                st.rerun()
-                        else:
-                            st.markdown(f"""
-                            <div class="uv-nav-btn next" style="flex-direction:row-reverse; justify-content:flex-end; opacity:0.3; cursor:not-allowed; border-color:#1e2030; background-color:#1e2030; box-shadow:none;">
-                                <svg class="uv-nav-arrow" viewBox="0 0 448 512" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M438.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L338.8 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l306.7 0L233.4 393.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"></path></svg>
-                                <span class="uv-nav-text" style="color:#6b7280;">Next</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                    # Inject JS bridge
-                    js = """
-                    <script>
-                    (function() {
-                        try {
-                            var doc = window.parent.document;
-                            setInterval(function() {
-                                var prevBtn = doc.getElementById('uv-prev-btn');
-                                if (prevBtn && !prevBtn.dataset.attached) {
-                                    prevBtn.addEventListener('click', function() {
-                                        var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
-                                        var target = triggers.find(b => b.innerText && b.innerText.includes('HiddenPrev'));
-                                        if (target) target.click();
-                                    });
-                                    prevBtn.dataset.attached = 'true';
-                                }
-                                
-                                var nextBtn = doc.getElementById('uv-next-btn');
-                                if (nextBtn && !nextBtn.dataset.attached) {
-                                    nextBtn.addEventListener('click', function() {
-                                        var triggers = Array.from(doc.querySelectorAll('button[kind="primary"]'));
-                                        var target = triggers.find(b => b.innerText && b.innerText.includes('HiddenNext'));
-                                        if (target) target.click();
-                                    });
-                                    nextBtn.dataset.attached = 'true';
-                                }
-                            }, 200);
-                        } catch(e) {}
-                    })();
-                    </script>
-                    """
-                    st.iframe(js, height=1)
+                        if st.button("Next →", key="btn_next_history", disabled=(page >= total_pages)):
+                            st.session_state.history_page += 1
+                            st.rerun()
+
                             
                 st.markdown('</div>', unsafe_allow_html=True)
 

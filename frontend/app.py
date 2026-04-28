@@ -212,7 +212,37 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ── Mobile Warning Banner ──────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.mobile-warning { display: none; }
+
+@media (max-width: 768px) {
+    .mobile-warning {
+        display: block;
+        background: rgba(251, 191, 36, 0.1);
+        border: 1px solid #fbbf24;
+        color: #fbbf24;
+        padding: 15px;
+        text-align: center;
+        border-radius: 10px;
+        margin: 10px;
+        font-family: 'Syne', sans-serif;
+        font-weight: 600;
+        z-index: 99999;
+    }
+}
+</style>
+
+<div class="mobile-warning">
+    ⚠️ <b>Mobile View Detected</b><br><br>
+    EquiGuard's compliance charts and data matrices are highly detailed.
+    For the optimal auditing experience, please open this application on a desktop or laptop.
+</div>
+""", unsafe_allow_html=True)
+
 # ── Master CSS ─────────────────────────────────────────────────────────────────
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');

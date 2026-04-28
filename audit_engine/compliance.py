@@ -43,25 +43,34 @@ def run_audit(model, X_test, predictions, protected_attributes):
         finally:
             root_logger.setLevel(old_level)
 
+        # Cast predictions to float — aif360 stores labels as float64 internally;
+        # passing int labels causes the 'labels do not match' validation error.
+        preds_float = [float(p) for p in predictions]
         df_aif = pd.DataFrame({
             'protected': protected_attributes,
-            'prediction': list(predictions),
-            'label': list(predictions),  # use predictions as surrogate labels
+            'prediction': preds_float,
+            'label': preds_float,
         })
+        # Ensure the label column is explicitly float64 (avoids int/float type mismatch)
+        df_aif['label'] = df_aif['label'].astype(float)
 
         dataset_pred = BinaryLabelDataset(
             df=df_aif,
             label_names=['label'],
             protected_attribute_names=['protected'],
+            favorable_label=1.0,
+            unfavorable_label=0.0,
         )
 
         # Reference dataset: assume all positive outcomes (ideal baseline)
         df_ref = df_aif.copy()
-        df_ref['label'] = 1
+        df_ref['label'] = 1.0
         dataset_ref = BinaryLabelDataset(
             df=df_ref,
             label_names=['label'],
             protected_attribute_names=['protected'],
+            favorable_label=1.0,
+            unfavorable_label=0.0,
         )
 
         privileged_groups   = [{'protected': 1}]
@@ -111,23 +120,68 @@ def run_audit(model, X_test, predictions, protected_attributes):
         classifier = model.named_steps['classifier']
         transformer = model[:-1]
         X_test_transformed = transformer.transform(X_test)
+        X_test_arr = np.asarray(X_test_transformed, dtype=float)
+        # Replace NaN/inf that StandardScaler produces when a feature has
+        # near-zero variance (common after proxy removal during mitigation)
+        X_test_arr = np.nan_to_num(X_test_arr, nan=0.0, posinf=0.0, neginf=0.0)
 
+        shap_values = None
         try:
-            explainer = shap.LinearExplainer(classifier, X_test_transformed)
-            shap_values = explainer.shap_values(X_test_transformed)
+            # Use maskers.Independent (replaces deprecated feature_perturbation arg)
+            _n_bg = min(100, len(X_test_arr))
+            _masker = shap.maskers.Independent(X_test_arr, max_samples=_n_bg)
+            explainer = shap.LinearExplainer(classifier, _masker)
+            shap_values = explainer.shap_values(X_test_arr)
         except Exception:
-            explainer = shap.Explainer(classifier, X_test_transformed)
-            shap_values = explainer(X_test_transformed).values
+            pass
+
+        if shap_values is None:
+            try:
+                explainer2 = shap.Explainer(classifier, X_test_arr)
+                shap_values = explainer2(X_test_arr).values
+            except Exception:
+                pass
+
+        if shap_values is None:
+            # Manual fallback: SHAP ≈ (x − mean_x) × coef for linear models
+            if hasattr(classifier, 'coef_'):
+                coef = classifier.coef_[0]          # (n_features,) for binary LR
+                mean_x = X_test_arr.mean(axis=0)
+                shap_values = (X_test_arr - mean_x) * coef
+            else:
+                raise ValueError("No linear coefficients available for SHAP fallback")
+
+        # LinearExplainer may return a list [class_0_vals, class_1_vals] for binary
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+
+        shap_values = np.asarray(shap_values, dtype=float)
+
+        # 3-D: shap.Explainer returns (n_samples, n_features, n_outputs) for multi-output.
+        # Take [:, :, -1] (positive class) — NOT [-1] which slices the last SAMPLE (wrong).
+        if shap_values.ndim == 3:
+            shap_values = shap_values[:, :, -1]
+
+        # 1-D: single-feature models may return (n_samples,) — reshape to (n_samples, 1)
+        if shap_values.ndim == 1:
+            shap_values = shap_values.reshape(-1, 1)
 
         mean_abs_shap = np.mean(np.abs(shap_values), axis=0)
+        # atleast_1d: single-feature mean produces a 0-D scalar; .tolist() would return
+        # a plain float, making zip(feature_names, float) fail with TypeError.
+        mean_abs_shap = np.atleast_1d(mean_abs_shap)
+        # Sanitise: NaN/inf cause JSON serialisation errors
+        mean_abs_shap = np.nan_to_num(mean_abs_shap, nan=0.0, posinf=0.0, neginf=0.0)
         feature_names = X_test.columns.tolist()
-        shap_dict = dict(zip(feature_names, mean_abs_shap))
+        shap_dict = dict(zip(feature_names, mean_abs_shap.tolist()))
         top_5_shap = dict(sorted(shap_dict.items(), key=lambda item: item[1], reverse=True)[:5])
-        top_feature_index = int(np.argmax(mean_abs_shap))
+        top_feature_index = int(np.argmax(mean_abs_shap)) if mean_abs_shap.any() else 0
         top_biased_feature = feature_names[top_feature_index]
-    except Exception:
+    except Exception as _shap_err:
+        logger.warning("SHAP computation failed: %s", _shap_err)
         top_biased_feature = "Unable to extract feature"
         top_5_shap = {}
+
 
     result = {
         "compliance_pass":       compliance_pass,

@@ -306,8 +306,7 @@ def render_dashboard():
             _send_clicked = st.button("HiddenSend", type="primary", key="agent_send")
 
         # JS bridge — forwards click on custom button to the hidden Streamlit button
-        import streamlit.components.v1 as _comp
-        _comp.html("""
+        st.iframe("""
         <script>
         (function() {
           try {

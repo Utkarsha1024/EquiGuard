@@ -40,7 +40,6 @@ def render_gradual_blur(position='bottom', strength=2, height='6rem', divCount=5
     backdrop-filter is blocked by Streamlit's nested containers, so this
     is the only approach that actually works.
     """
-    import streamlit.components.v1 as _components
 
     direction_map = {
         "bottom": "to bottom", "top": "to top",

@@ -47,7 +47,7 @@ def mitigate_and_retrain(flagged_columns: list, data_path: str = "data/golden_de
     pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler()),
-        ('classifier', LogisticRegression(random_state=42))
+        ('classifier', LogisticRegression(max_iter=1000, random_state=42))
     ])
     
     pipeline.fit(X_train, y_train)

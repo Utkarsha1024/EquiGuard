@@ -13,7 +13,7 @@
 
 *Intercept bias before it reaches production. Not after a lawsuit.*
 
-[![Live App](https://img.shields.io/badge/🚀_Live_App-equiguard.streamlit.app-6366f1?style=for-the-badge)](https://equiguard.streamlit.app/)
+[![Live App](https://img.shields.io/badge/🚀_Live_App-equiguard.streamlit.app-6366f1)](https://equiguard.streamlit.app/)
 [![CI](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/Utkarsha1024/EquiGuard/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.68+-009688?logo=fastapi&logoColor=white)
